@@ -1,0 +1,83 @@
+[data-theme='dark'] {
+  --color-bg: #0d1117;
+  --color-surface: #161b22;
+  --color-text: #e6edf3;
+  --color-text-secondary: #8b949e;
+  --color-primary: #58a6ff;
+  --color-success: #3fb950;
+  --color-danger: #f85149;
+  --color-border: #30363d;
+  --color-hover: #1f2937;
+  --color-card-bg: #161b22;
+  --color-header-bg: #161b22;
+  --color-sider-bg: #0d1117;
+}
+
+[data-theme='light'] {
+  --color-bg: #f5f5f5;
+  --color-surface: #ffffff;
+  --color-text: #1f1f1f;
+  --color-text-secondary: #666666;
+  --color-primary: #1677ff;
+  --color-success: #52c41a;
+  --color-danger: #ff4d4f;
+  --color-border: #d9d9d9;
+  --color-hover: #f0f0f0;
+  --color-card-bg: #ffffff;
+  --color-header-bg: #ffffff;
+  --color-sider-bg: #f5f5f5;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+.ant-layout {
+  background: var(--color-bg) !important;
+}
+
+.ant-layout-sider {
+  background: var(--color-sider-bg) !important;
+}
+
+.ant-layout-header {
+  background: var(--color-header-bg) !important;
+}
+
+.ant-card {
+  background: var(--color-card-bg) !important;
+  border-color: var(--color-border) !important;
+}
+
+.ant-table {
+  background: var(--color-surface) !important;
+}
+
+.ant-tabs-tab {
+  color: var(--color-text-secondary) !important;
+}
+
+.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--color-primary) !important;
+}
+
+.stock-up {
+  color: var(--color-danger) !important;
+}
+
+.stock-down {
+  color: var(--color-success) !important;
+}
+
+.stock-flat {
+  color: var(--color-text-secondary) !important;
+}
