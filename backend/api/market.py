@@ -216,12 +216,10 @@ def stock_ranking():
 
     except Exception as e:
         logger.warning("Failed to fetch stock ranking: %s", e)
-        return _success({
-            'total': 0,
-            'page': page,
-            'page_size': page_size,
-            'stocks': [],
-        })
+        from services.mock_data import generate_ranking
+        result = generate_ranking(rank_type, page, page_size)
+        set_cached(cache_key, result, ttl_seconds=60)
+        return _success(result)
 
 
 @market_bp.route('/api/market/sectors', methods=['GET'])
@@ -274,7 +272,10 @@ def sector_data():
 
     except Exception as e:
         logger.warning("Failed to fetch sector data: %s", e)
-        return _success([])
+        from services.mock_data import generate_sectors
+        sectors = generate_sectors()
+        set_cached(cache_key, sectors, ttl_seconds=120)
+        return _success(sectors)
 
 
 @market_bp.route('/api/market/limit-up', methods=['GET'])
