@@ -16,7 +16,7 @@ echo " | |_) | | '__/ _ \ |\/| |/ _ \ |  \| |  \| | |\/| |"
 echo " |  _ <| | | |  __/ |  | / ___ \| |\  | |\  | |  | |"
 echo " |_| \_\_|_|  \___|_|  |_/_/   \_\_| \_|_| \_|_|  |_|"
 echo -e "${NC}"
-echo "  中国股市量化分析平台"
+echo "  中国股市量化分析平台（前端已重构为 TypeScript）"
 echo ""
 
 # Check Python
@@ -29,6 +29,13 @@ fi
 if ! command -v node &> /dev/null; then
     echo -e "${RED}[ERROR] Node.js not found. Please install Node.js 18+${NC}"
     exit 1
+fi
+
+# Prefer pnpm for frontend
+if command -v pnpm &> /dev/null; then
+    FE_PM="pnpm"
+else
+    FE_PM="npm"
 fi
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -52,10 +59,14 @@ echo -e "${BLUE}[2/4] Installing backend dependencies...${NC}"
 cd "$PROJECT_DIR/backend"
 pip install -r requirements.txt -q
 
-# Install frontend dependencies
+# Install frontend dependencies (pnpm preferred)
 echo -e "${BLUE}[3/4] Installing frontend dependencies...${NC}"
 cd "$PROJECT_DIR/frontend"
-npm install --silent 2>/dev/null || npm install
+if [ "$FE_PM" = "pnpm" ]; then
+    pnpm install
+else
+    npm install --legacy-peer-deps
+fi
 
 # Start backend
 echo -e "${BLUE}[4/4] Starting backend server (port 5000)...${NC}"

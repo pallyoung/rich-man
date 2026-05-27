@@ -1,46 +1,56 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Table, Tabs, Spin, Typography, Tag, Empty } from 'antd';
+import { Card, Table, Tabs, Spin, Typography, Empty } from 'antd';
+import type { TableColumnsType, TablePaginationConfig } from 'antd';
+import type { SorterResult, FilterValue } from 'antd/es/table/interface';
 import { useNavigate } from 'react-router-dom';
 import HeatMap from '../components/HeatMap';
-import api from '../utils/api';
+import { apiGet } from '../utils/api';
 import { formatPrice, formatPercent, getPercentColor, formatVolume, formatAmount } from '../utils/formatters';
+import type { StockRankItem, SectorData } from '../types';
 
 const { Title } = Typography;
 
-export default function MarketCenter({ isDark }) {
-  const [activeTab, setActiveTab] = useState('ranking');
-  const [ranking, setRanking] = useState([]);
-  const [sectors, setSectors] = useState([]);
-  const [limitUp, setLimitUp] = useState([]);
-  const [limitDown, setLimitDown] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
-  const [sortInfo, setSortInfo] = useState({ field: 'change_pct', order: 'descend' });
+interface MarketCenterProps {
+  isDark: boolean;
+}
+
+interface SortInfo {
+  field: string;
+  order: 'ascend' | 'descend';
+}
+
+export default function MarketCenter({ isDark }: MarketCenterProps) {
+  const [activeTab, setActiveTab] = useState<string>('ranking');
+  const [ranking, setRanking] = useState<StockRankItem[]>([]);
+  const [sectors, setSectors] = useState<SectorData[]>([]);
+  const [limitUp, setLimitUp] = useState<StockRankItem[]>([]);
+  const [limitDown, setLimitDown] = useState<StockRankItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [pagination, setPagination] = useState<TablePaginationConfig>({ current: 1, pageSize: 20, total: 0 });
+  const [sortInfo, setSortInfo] = useState<SortInfo>({ field: 'change_pct', order: 'descend' });
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchRanking(pagination.current, pagination.pageSize, sortInfo);
+    fetchRanking(pagination.current ?? 1, pagination.pageSize ?? 20, sortInfo);
   }, []);
 
   const fetchRanking = useCallback(
-    async (page = 1, pageSize = 20, sort = { field: 'change_pct', order: 'descend' }) => {
+    async (page = 1, pageSize = 20, sort: SortInfo = { field: 'change_pct', order: 'descend' }) => {
       setLoading(true);
       try {
-        const res = await api.get('/market/ranking', {
-          params: {
-            page,
-            page_size: pageSize,
-            sort_by: sort.field || 'change_pct',
-            sort_order: sort.order === 'ascend' ? 'asc' : 'desc',
-          },
+        const data = await apiGet<StockRankItem[] | { list?: StockRankItem[]; total?: number }>('/market/ranking', {
+          page,
+          page_size: pageSize,
+          sort_by: sort.field || 'change_pct',
+          sort_order: sort.order === 'ascend' ? 'asc' : 'desc',
         });
-        const items = Array.isArray(res) ? res : res?.list || [];
+        const items = Array.isArray(data) ? data : data?.list || [];
         setRanking(items);
         setPagination((prev) => ({
           ...prev,
           current: page,
           pageSize,
-          total: res?.total || items.length,
+          total: (Array.isArray(data) ? undefined : data?.total) || items.length,
         }));
       } catch {
         setRanking([]);
@@ -54,8 +64,8 @@ export default function MarketCenter({ isDark }) {
   const fetchSectors = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get('/market/sectors');
-      setSectors(Array.isArray(res) ? res : []);
+      const data = await apiGet<SectorData[]>('/market/sectors');
+      setSectors(Array.isArray(data) ? data : []);
     } catch {
       setSectors([]);
     } finally {
@@ -63,14 +73,13 @@ export default function MarketCenter({ isDark }) {
     }
   }, []);
 
-  const fetchLimitBoard = useCallback(async (type) => {
+  const fetchLimitBoard = useCallback(async (type: 'limit_up' | 'limit_down') => {
     setLoading(true);
     try {
       const endpoint = type === 'limit_up' ? '/market/limit-up' : '/market/limit-down';
-      const res = await api.get(endpoint);
-      const items = Array.isArray(res) ? res : [];
-      if (type === 'limit_up') setLimitUp(items);
-      else setLimitDown(items);
+      const items = await apiGet<StockRankItem[]>(endpoint);
+      if (type === 'limit_up') setLimitUp(Array.isArray(items) ? items : []);
+      else setLimitDown(Array.isArray(items) ? items : []);
     } catch {
       if (type === 'limit_up') setLimitUp([]);
       else setLimitDown([]);
@@ -80,10 +89,10 @@ export default function MarketCenter({ isDark }) {
   }, []);
 
   const handleTabChange = useCallback(
-    (key) => {
+    (key: string) => {
       setActiveTab(key);
       if (key === 'ranking') {
-        fetchRanking(1, pagination.pageSize, sortInfo);
+        fetchRanking(1, pagination.pageSize ?? 20, sortInfo);
       } else if (key === 'heatmap') {
         fetchSectors();
       } else if (key === 'limit_up') {
@@ -95,14 +104,14 @@ export default function MarketCenter({ isDark }) {
     [pagination.pageSize, sortInfo, fetchRanking, fetchSectors, fetchLimitBoard]
   );
 
-  const columns = [
+  const columns: TableColumnsType<StockRankItem> = [
     {
       title: '代码',
       dataIndex: 'code',
       key: 'code',
       width: 100,
       fixed: 'left',
-      render: (v) => (
+      render: (v: string) => (
         <a onClick={() => navigate(`/stock/${v}`)} style={{ color: 'var(--color-primary)' }}>
           {v}
         </a>
@@ -120,7 +129,7 @@ export default function MarketCenter({ isDark }) {
       dataIndex: 'price',
       key: 'price',
       width: 100,
-      render: (v) => formatPrice(v),
+      render: (v: number) => formatPrice(v),
       sorter: true,
     },
     {
@@ -128,7 +137,7 @@ export default function MarketCenter({ isDark }) {
       dataIndex: 'change_pct',
       key: 'change_pct',
       width: 100,
-      render: (v) => <span className={getPercentColor(v)}>{formatPercent(v)}</span>,
+      render: (v: number) => <span className={getPercentColor(v)}>{formatPercent(v)}</span>,
       sorter: true,
       defaultSortOrder: 'descend',
     },
@@ -137,7 +146,7 @@ export default function MarketCenter({ isDark }) {
       dataIndex: 'change',
       key: 'change',
       width: 100,
-      render: (v) => {
+      render: (v: number) => {
         const num = Number(v);
         return (
           <span className={getPercentColor(num)}>
@@ -152,7 +161,7 @@ export default function MarketCenter({ isDark }) {
       dataIndex: 'volume',
       key: 'volume',
       width: 110,
-      render: (v) => formatVolume(v),
+      render: (v: number) => formatVolume(v),
       sorter: true,
     },
     {
@@ -160,7 +169,7 @@ export default function MarketCenter({ isDark }) {
       dataIndex: 'amount',
       key: 'amount',
       width: 110,
-      render: (v) => formatAmount(v),
+      render: (v: number) => formatAmount(v),
       sorter: true,
     },
     {
@@ -168,7 +177,7 @@ export default function MarketCenter({ isDark }) {
       dataIndex: 'turnover_rate',
       key: 'turnover_rate',
       width: 100,
-      render: (v) => (v !== null && v !== undefined ? `${Number(v).toFixed(2)}%` : '--'),
+      render: (v: number | null) => (v !== null && v !== undefined ? `${Number(v).toFixed(2)}%` : '--'),
       sorter: true,
     },
     {
@@ -176,21 +185,26 @@ export default function MarketCenter({ isDark }) {
       dataIndex: 'amplitude',
       key: 'amplitude',
       width: 100,
-      render: (v) => (v !== null && v !== undefined ? `${Number(v).toFixed(2)}%` : '--'),
+      render: (v: number | null) => (v !== null && v !== undefined ? `${Number(v).toFixed(2)}%` : '--'),
       sorter: true,
     },
   ];
 
-  const handleTableChange = (pag, filters, sorter) => {
-    const newSort = {
-      field: sorter.field || 'change_pct',
-      order: sorter.order || 'descend',
+  const handleTableChange = (
+    pag: TablePaginationConfig,
+    _filters: Record<string, FilterValue | null>,
+    sorter: SorterResult<StockRankItem> | SorterResult<StockRankItem>[]
+  ) => {
+    const s = Array.isArray(sorter) ? sorter[0] : sorter;
+    const newSort: SortInfo = {
+      field: (s.field as string) || 'change_pct',
+      order: s.order || 'descend',
     };
     setSortInfo(newSort);
-    fetchRanking(pag.current, pag.pageSize, newSort);
+    fetchRanking(pag.current ?? 1, pag.pageSize ?? 20, newSort);
   };
 
-  const limitColumns = columns.filter((c) => ['code', 'name', 'price', 'change_pct', 'change', 'volume', 'amount'].includes(c.key));
+  const limitColumns = columns.filter((c) => ['code', 'name', 'price', 'change_pct', 'change', 'volume', 'amount'].includes(c.key as string));
 
   return (
     <div>
@@ -207,7 +221,7 @@ export default function MarketCenter({ isDark }) {
               label: '涨跌排行',
               children: (
                 <Spin spinning={loading}>
-                  <Table
+                  <Table<StockRankItem>
                     dataSource={ranking}
                     columns={columns}
                     rowKey={(r) => r.code}
@@ -234,7 +248,7 @@ export default function MarketCenter({ isDark }) {
               label: '涨停板',
               children: (
                 <Spin spinning={loading}>
-                  <Table
+                  <Table<StockRankItem>
                     dataSource={limitUp}
                     columns={limitColumns}
                     rowKey={(r) => r.code}
@@ -251,7 +265,7 @@ export default function MarketCenter({ isDark }) {
               label: '跌停板',
               children: (
                 <Spin spinning={loading}>
-                  <Table
+                  <Table<StockRankItem>
                     dataSource={limitDown}
                     columns={limitColumns}
                     rowKey={(r) => r.code}

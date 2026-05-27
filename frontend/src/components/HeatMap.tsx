@@ -1,7 +1,14 @@
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
+import type { SectorData } from '../types';
 
-export default function HeatMap({ data = [], height = 500, theme: themeMode = 'dark' }) {
+interface HeatMapProps {
+  data?: SectorData[];
+  height?: number;
+  theme?: 'dark' | 'light';
+}
+
+export default function HeatMap({ data = [], height = 500, theme: themeMode = 'dark' }: HeatMapProps) {
   const option = useMemo(() => {
     if (!data || data.length === 0) return {};
 
@@ -22,12 +29,13 @@ export default function HeatMap({ data = [], height = 500, theme: themeMode = 'd
         fontSize: 12,
         lineHeight: 18,
       },
+      leading_stock: item.leading_stock,
     }));
 
     return {
       backgroundColor: bgColor,
       tooltip: {
-        formatter: (params) => {
+        formatter: (params: { data: { name: string; change: number; leading_stock?: string } }) => {
           const d = params.data;
           const ch = d.change || 0;
           const color = ch >= 0 ? '#f85149' : '#3fb950';
@@ -80,7 +88,7 @@ export default function HeatMap({ data = [], height = 500, theme: themeMode = 'd
   return <ReactECharts option={option} style={{ height, width: '100%' }} />;
 }
 
-function getSectorColor(change) {
+function getSectorColor(change: number): string {
   if (change >= 5) return '#c22538';
   if (change >= 3) return '#e84040';
   if (change >= 1) return '#f85149';

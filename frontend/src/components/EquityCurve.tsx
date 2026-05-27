@@ -1,7 +1,14 @@
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
+import type { EquityPoint } from '../types';
 
-export default function EquityCurve({ data = [], height = 400, theme: themeMode = 'dark' }) {
+interface EquityCurveProps {
+  data?: EquityPoint[];
+  height?: number;
+  theme?: 'dark' | 'light';
+}
+
+export default function EquityCurve({ data = [], height = 400, theme: themeMode = 'dark' }: EquityCurveProps) {
   const option = useMemo(() => {
     if (!data || data.length === 0) return {};
 
@@ -13,15 +20,13 @@ export default function EquityCurve({ data = [], height = 400, theme: themeMode 
     const equity = data.map((d) => d.equity);
     const benchmark = data.map((d) => d.benchmark ?? null);
 
-    const maxEquity = [];
     let peak = equity[0];
     const drawdown = equity.map((v) => {
       if (v > peak) peak = v;
-      maxEquity.push(peak);
       return +(((v - peak) / peak) * 100).toFixed(2);
     });
 
-    const seriesList = [
+    const seriesList: Record<string, unknown>[] = [
       {
         name: '策略净值',
         type: 'line',

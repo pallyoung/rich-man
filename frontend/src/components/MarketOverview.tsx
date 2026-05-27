@@ -1,15 +1,21 @@
 import React from 'react';
 import { Card, Row, Col, Statistic } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, MinusOutlined } from '@ant-design/icons';
+import type { MarketIndex } from '../types';
 
-const defaultIndices = [
+interface MarketOverviewProps {
+  data?: MarketIndex[];
+  loading?: boolean;
+}
+
+const defaultIndices: MarketIndex[] = [
   { name: '上证指数', code: 'sh000001' },
   { name: '深证成指', code: 'sz399001' },
   { name: '创业板指', code: 'sz399006' },
   { name: '科创50', code: 'sh000688' },
 ];
 
-export default function MarketOverview({ data, loading = false }) {
+export default function MarketOverview({ data, loading = false }: MarketOverviewProps) {
   const indices = data && data.length > 0 ? data : defaultIndices;
 
   return (
@@ -36,7 +42,7 @@ export default function MarketOverview({ data, loading = false }) {
                     {item.name}
                   </span>
                 }
-                value={price}
+                value={price as number}
                 precision={2}
                 valueStyle={{ color, fontSize: 24, fontWeight: 700 }}
                 prefix={

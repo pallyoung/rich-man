@@ -1,18 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Card, Table, Spin, Typography, Empty } from 'antd';
+import type { TableColumnsType } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import MarketOverview from '../components/MarketOverview';
 import SentimentGauge from '../components/SentimentGauge';
-import api from '../utils/api';
-import { formatPercent, getPercentColor } from '../utils/formatters';
+import { apiGet, apiPost } from '../utils/api';
+import { formatPercent } from '../utils/formatters';
+import type { MarketIndex, SectorData, SignalData, OverviewData } from '../types';
 
 const { Title } = Typography;
 
-export default function Dashboard({ isDark }) {
-  const [overview, setOverview] = useState(null);
-  const [sectors, setSectors] = useState([]);
-  const [signals, setSignals] = useState([]);
-  const [loading, setLoading] = useState(true);
+interface DashboardProps {
+  isDark: boolean;
+}
+
+interface DashboardOverview extends OverviewData {}
+
+export default function Dashboard({ isDark }: DashboardProps) {
+  const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  const [sectors, setSectors] = useState<SectorData[]>([]);
+  const [signals, setSignals] = useState<SignalData[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
     fetchData();
@@ -22,26 +30,25 @@ export default function Dashboard({ isDark }) {
     setLoading(true);
     try {
       const [ovRes, secRes, sigRes, udRes] = await Promise.allSettled([
-        api.get('/market/overview'),
-        api.get('/market/sectors'),
-        api.get('/trend/signals'),
-        api.get('/market/updown_stats'),
+        apiGet('/market/overview'),
+        apiGet('/market/sectors'),
+        apiGet('/trend/signals'),
+        apiGet('/market/updown_stats'),
       ]);
       if (ovRes.status === 'fulfilled') {
-        const indices = Array.isArray(ovRes.value) ? ovRes.value : [];
-        // Merge updown stats into overview
-        let updown = {};
+        const indices: MarketIndex[] = Array.isArray(ovRes.value) ? ovRes.value as MarketIndex[] : [];
+        let updown: Record<string, unknown> = {};
         if (udRes.status === 'fulfilled' && udRes.value) {
-          updown = udRes.value;
+          updown = udRes.value as Record<string, unknown>;
         }
-        setOverview({ indices, ...updown });
+        setOverview({ indices, ...updown } as DashboardOverview);
       }
       if (secRes.status === 'fulfilled') {
-        const sd = Array.isArray(secRes.value) ? secRes.value : [];
+        const sd: SectorData[] = Array.isArray(secRes.value) ? secRes.value as SectorData[] : [];
         setSectors(sd.slice(0, 10));
       }
       if (sigRes.status === 'fulfilled') {
-        setSignals(Array.isArray(sigRes.value) ? sigRes.value.slice(0, 10) : []);
+        setSignals(Array.isArray(sigRes.value) ? (sigRes.value as SignalData[]).slice(0, 10) : []);
       }
     } catch {
       // handled by interceptor
@@ -54,14 +61,14 @@ export default function Dashboard({ isDark }) {
   const sectorBarOption = buildSectorBarChart(sectors, isDark);
   const sentimentValue = overview?.sentiment ?? 50;
 
-  const signalColumns = [
+  const signalColumns: TableColumnsType<SignalData> = [
     { title: '股票代码', dataIndex: 'stock_code', key: 'stock_code' },
     { title: '股票名称', dataIndex: 'stock_name', key: 'stock_name' },
     {
       title: '信号类型',
       dataIndex: 'signal_type',
       key: 'signal_type',
-      render: (v) => (
+      render: (v: string) => (
         <span style={{ color: v === '买入' || v === 'BUY' ? '#f85149' : '#3fb950', fontWeight: 600 }}>
           {v}
         </span>
@@ -72,7 +79,7 @@ export default function Dashboard({ isDark }) {
       title: '信号强度',
       dataIndex: 'strength',
       key: 'strength',
-      render: (v) => {
+      render: (v: number | null | undefined) => {
         if (v === null || v === undefined) return '--';
         const pct = Math.round(v * 100);
         return (
@@ -143,7 +150,7 @@ export default function Dashboard({ isDark }) {
           </Col>
           <Col xs={24} lg={10}>
             <Card title="今日策略信号" styles={{ body: { padding: '0' } }}>
-              <Table
+              <Table<SignalData>
                 dataSource={signals}
                 columns={signalColumns}
                 rowKey={(r) => `${r.stock_code}-${r.signal_date}-${r.signal_type}`}
@@ -160,7 +167,7 @@ export default function Dashboard({ isDark }) {
   );
 }
 
-function buildUpDownChart(overview, isDark) {
+function buildUpDownChart(overview: DashboardOverview | null, isDark: boolean): Record<string, unknown> {
   if (!overview) return {};
   const up = overview.up_count ?? overview.up ?? 0;
   const down = overview.down_count ?? overview.down ?? 0;
@@ -195,7 +202,7 @@ function buildUpDownChart(overview, isDark) {
   };
 }
 
-function buildSectorBarChart(sectors, isDark) {
+function buildSectorBarChart(sectors: SectorData[], isDark: boolean): Record<string, unknown> {
   if (!sectors || sectors.length === 0) return {};
   const sorted = [...sectors].sort((a, b) => (a.change_pct || 0) - (b.change_pct || 0));
 
@@ -236,7 +243,7 @@ function buildSectorBarChart(sectors, isDark) {
         label: {
           show: true,
           position: 'right',
-          formatter: (p) => `${p.value > 0 ? '+' : ''}${p.value.toFixed(2)}%`,
+          formatter: (p: { value: number }) => `${p.value > 0 ? '+' : ''}${p.value.toFixed(2)}%`,
           color: isDark ? '#e6edf3' : '#1f1f1f',
           fontSize: 11,
         },

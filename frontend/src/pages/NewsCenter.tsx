@@ -3,23 +3,28 @@ import {
   Card, Row, Col, List, Spin, Typography, Tag, Input, Tabs, Empty, Space, Avatar,
 } from 'antd';
 import {
-  ClockCircleOutlined, GlobalOutlined, FileTextOutlined, SearchOutlined, FireOutlined,
+  ClockCircleOutlined, GlobalOutlined, FileTextOutlined, FireOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import SentimentGauge from '../components/SentimentGauge';
-import api from '../utils/api';
+import { apiGet, apiPost } from '../utils/api';
+import type { NewsItem, AnnouncementItem, SentimentData } from '../types';
 
 const { Title, Text, Paragraph } = Typography;
 
-export default function NewsCenter({ isDark }) {
-  const [news, setNews] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [sentiment, setSentiment] = useState({ score: 50, keywords: [] });
-  const [sentimentLoading, setSentimentLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('latest');
-  const [announceCode, setAnnounceCode] = useState('');
-  const [announcements, setAnnouncements] = useState([]);
-  const [announceLoading, setAnnounceLoading] = useState(false);
+interface NewsCenterProps {
+  isDark: boolean;
+}
+
+export default function NewsCenter({ isDark }: NewsCenterProps) {
+  const [news, setNews] = useState<NewsItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [sentiment, setSentiment] = useState<SentimentData>({ score: 50, keywords: [] });
+  const [sentimentLoading, setSentimentLoading] = useState<boolean>(true);
+  const [activeTab, setActiveTab] = useState<string>('latest');
+  const [announceCode, setAnnounceCode] = useState<string>('');
+  const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([]);
+  const [announceLoading, setAnnounceLoading] = useState<boolean>(false);
 
   useEffect(() => {
     fetchNews();
@@ -29,8 +34,8 @@ export default function NewsCenter({ isDark }) {
   async function fetchNews() {
     setLoading(true);
     try {
-      const res = await api.get('/news/latest', { params: { limit: 30 } });
-      setNews(Array.isArray(res) ? res : []);
+      const res = await apiGet('/news/latest', { limit: 30 });
+      setNews(Array.isArray(res) ? res as NewsItem[] : []);
     } catch {
       setNews([]);
     } finally {
@@ -41,13 +46,15 @@ export default function NewsCenter({ isDark }) {
   async function fetchSentiment() {
     setSentimentLoading(true);
     try {
-      const res = await api.get('/news/sentiment');
+      const res = await apiGet('/news/sentiment');
       if (res) {
+        const data = res as Record<string, unknown>;
+        const newsSentiments = data.news_sentiments as { title: string }[] | undefined;
         setSentiment({
-          score: res.sentiment_index ?? res.score ?? res.sentiment ?? 50,
-          keywords: res.news_sentiments
-            ? res.news_sentiments.map(n => n.title).slice(0, 8)
-            : res.keywords || [],
+          score: (data.sentiment_index as number) ?? (data.score as number) ?? (data.sentiment as number) ?? 50,
+          keywords: newsSentiments
+            ? newsSentiments.map((n) => n.title).slice(0, 8)
+            : (data.keywords as SentimentData['keywords']) || [],
         });
       }
     } catch {
@@ -57,12 +64,12 @@ export default function NewsCenter({ isDark }) {
     }
   }
 
-  const fetchAnnouncements = useCallback(async (code) => {
+  const fetchAnnouncements = useCallback(async (code: string) => {
     if (!code.trim()) return;
     setAnnounceLoading(true);
     try {
-      const res = await api.get('/news/announcements', { params: { stock_code: code.trim() } });
-      setAnnouncements(Array.isArray(res) ? res : []);
+      const res = await apiGet('/news/announcements', { stock_code: code.trim() });
+      setAnnouncements(Array.isArray(res) ? res as AnnouncementItem[] : []);
     } catch {
       setAnnouncements([]);
     } finally {
@@ -90,7 +97,7 @@ export default function NewsCenter({ isDark }) {
                 children: (
                   <Spin spinning={loading}>
                     {news.length > 0 ? (
-                      <List
+                      <List<NewsItem>
                         itemLayout="vertical"
                         dataSource={news}
                         pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条资讯` }}
@@ -134,13 +141,6 @@ export default function NewsCenter({ isDark }) {
                                 </Paragraph>
                               }
                             />
-                            {item.tags && (
-                              <Space size={4} style={{ marginTop: 8 }}>
-                                {(Array.isArray(item.tags) ? item.tags : [item.tags]).map((t) => (
-                                  <Tag key={t} size="small">{t}</Tag>
-                                ))}
-                              </Space>
-                            )}
                           </List.Item>
                         )}
                       />
@@ -151,7 +151,7 @@ export default function NewsCenter({ isDark }) {
                 ),
               },
               {
-                key: 'announcements',
+                key: 'announcement',
                 label: '个股公告',
                 children: (
                   <div>
@@ -161,18 +161,10 @@ export default function NewsCenter({ isDark }) {
                         onChange={(e) => setAnnounceCode(e.target.value)}
                         onPressEnter={() => fetchAnnouncements(announceCode)}
                         placeholder="输入股票代码查询公告"
-                        prefix={<SearchOutlined />}
-                        style={{ width: 300 }}
+                        style={{ width: 200 }}
                       />
                       <button
-                        style={{
-                          padding: '4px 16px',
-                          background: 'var(--color-primary)',
-                          color: '#fff',
-                          border: 'none',
-                          borderRadius: 6,
-                          cursor: 'pointer',
-                        }}
+                        className="ant-btn ant-btn-primary"
                         onClick={() => fetchAnnouncements(announceCode)}
                       >
                         查询
@@ -180,7 +172,7 @@ export default function NewsCenter({ isDark }) {
                     </Space>
                     <Spin spinning={announceLoading}>
                       {announcements.length > 0 ? (
-                        <List
+                        <List<AnnouncementItem>
                           dataSource={announcements}
                           pagination={{ pageSize: 10 }}
                           renderItem={(item) => (
@@ -250,16 +242,21 @@ export default function NewsCenter({ isDark }) {
   );
 }
 
-function buildKeywordCloud(keywords, isDark) {
+interface KeywordItem {
+  name: string;
+  value: number;
+}
+
+function buildKeywordCloud(keywords: SentimentData['keywords'], isDark: boolean): Record<string, unknown> {
   if (!keywords || keywords.length === 0) return {};
 
   const textColor = isDark ? '#e6edf3' : '#1f1f1f';
   const subTextColor = isDark ? '#8b949e' : '#666666';
   const gridBorderColor = isDark ? '#30363d' : '#d9d9d9';
 
-  const sorted = [...keywords]
+  const sorted: KeywordItem[] = [...keywords]
     .map((kw) => ({
-      name: typeof kw === 'string' ? kw : kw.text || kw.name,
+      name: typeof kw === 'string' ? kw : kw.text || kw.name || '',
       value: typeof kw === 'object' ? kw.weight || kw.count || 10 : 10,
     }))
     .sort((a, b) => b.value - a.value)

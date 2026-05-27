@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { type AxiosError, type AxiosResponse } from 'axios';
 import { message } from 'antd';
 
 const api = axios.create({
@@ -9,19 +9,27 @@ const api = axios.create({
   },
 });
 
+interface BackendResponse<T = unknown> {
+  code?: number;
+  data: T;
+  message?: string;
+}
+
 api.interceptors.response.use(
-  (response) => {
+  (response: AxiosResponse<BackendResponse>) => {
     const res = response.data;
     if (res && res.code !== undefined) {
       if (res.code === 0 || res.code === 200) {
-        return res.data;
+        // Mutate response.data to be the unwrapped payload
+        response.data = res.data as BackendResponse;
+        return response;
       }
       message.error(res.message || '请求失败');
       return Promise.reject(new Error(res.message || '请求失败'));
     }
-    return res;
+    return response;
   },
-  (error) => {
+  (error: AxiosError) => {
     if (error.response) {
       const { status } = error.response;
       if (status === 404) {
@@ -39,5 +47,16 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+/** Convenience wrapper: returns response.data typed as T */
+export async function apiGet<T = unknown>(url: string, params?: Record<string, unknown>): Promise<T> {
+  const res = await api.get(url, { params });
+  return res.data as T;
+}
+
+export async function apiPost<T = unknown>(url: string, data?: unknown): Promise<T> {
+  const res = await api.post(url, data);
+  return res.data as T;
+}
 
 export default api;

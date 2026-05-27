@@ -1,22 +1,28 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Card, Row, Col, Table, Spin, Typography, Tag, Input, Button, Space, Empty,
+  Card, Table, Spin, Typography, Tag, Input, Button, Space, Empty,
 } from 'antd';
-import { SearchOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import type { TableColumnsType } from 'antd';
+import { PlusOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
-import api from '../utils/api';
+import { apiGet, apiPost } from '../utils/api';
+import type { SignalData, CompareStock, RotationItem } from '../types';
 
 const { Title, Text } = Typography;
 
-export default function TrendAnalysis({ isDark }) {
-  const [signals, setSignals] = useState([]);
-  const [signalsLoading, setSignalsLoading] = useState(true);
-  const [compareCodes, setCompareCodes] = useState([]);
-  const [inputCode, setInputCode] = useState('');
-  const [compareData, setCompareData] = useState([]);
-  const [compareLoading, setCompareLoading] = useState(false);
-  const [rotationData, setRotationData] = useState([]);
-  const [rotationLoading, setRotationLoading] = useState(true);
+interface TrendAnalysisProps {
+  isDark: boolean;
+}
+
+export default function TrendAnalysis({ isDark }: TrendAnalysisProps) {
+  const [signals, setSignals] = useState<SignalData[]>([]);
+  const [signalsLoading, setSignalsLoading] = useState<boolean>(true);
+  const [compareCodes, setCompareCodes] = useState<string[]>([]);
+  const [inputCode, setInputCode] = useState<string>('');
+  const [compareData, setCompareData] = useState<CompareStock[]>([]);
+  const [compareLoading, setCompareLoading] = useState<boolean>(false);
+  const [rotationData, setRotationData] = useState<RotationItem[]>([]);
+  const [rotationLoading, setRotationLoading] = useState<boolean>(true);
 
   useEffect(() => {
     fetchSignals();
@@ -26,8 +32,8 @@ export default function TrendAnalysis({ isDark }) {
   async function fetchSignals() {
     setSignalsLoading(true);
     try {
-      const res = await api.get('/trend/signals');
-      setSignals(Array.isArray(res) ? res : []);
+      const res = await apiGet('/trend/signals');
+      setSignals(Array.isArray(res) ? res as SignalData[] : []);
     } catch {
       setSignals([]);
     } finally {
@@ -38,8 +44,8 @@ export default function TrendAnalysis({ isDark }) {
   async function fetchRotation() {
     setRotationLoading(true);
     try {
-      const res = await api.get('/trend/sector-rotation');
-      setRotationData(Array.isArray(res) ? res : []);
+      const res = await apiGet('/trend/sector-rotation');
+      setRotationData(Array.isArray(res) ? res as RotationItem[] : []);
     } catch {
       setRotationData([]);
     } finally {
@@ -47,15 +53,15 @@ export default function TrendAnalysis({ isDark }) {
     }
   }
 
-  const fetchCompare = useCallback(async (codes) => {
+  const fetchCompare = useCallback(async (codes: string[]) => {
     if (!codes || codes.length === 0) {
       setCompareData([]);
       return;
     }
     setCompareLoading(true);
     try {
-      const res = await api.get('/trend/compare', { params: { codes: codes.join(',') } });
-      setCompareData(Array.isArray(res) ? res : []);
+      const res = await apiGet('/trend/compare', { codes: codes.join(',') });
+      setCompareData(Array.isArray(res) ? res as CompareStock[] : []);
     } catch {
       setCompareData([]);
     } finally {
@@ -76,25 +82,25 @@ export default function TrendAnalysis({ isDark }) {
     fetchCompare(next);
   };
 
-  const removeCode = (code) => {
+  const removeCode = (code: string) => {
     const next = compareCodes.filter((c) => c !== code);
     setCompareCodes(next);
     fetchCompare(next);
   };
 
-  const signalColumns = [
+  const signalColumns: TableColumnsType<SignalData> = [
     {
       title: '股票代码',
       dataIndex: 'stock_code',
       key: 'stock_code',
-      render: (v) => <Text strong style={{ color: 'var(--color-primary)' }}>{v}</Text>,
+      render: (v: string) => <Text strong style={{ color: 'var(--color-primary)' }}>{v}</Text>,
     },
     { title: '股票名称', dataIndex: 'stock_name', key: 'stock_name' },
     {
       title: '信号类型',
       dataIndex: 'signal_type',
       key: 'signal_type',
-      render: (v) => {
+      render: (v: string) => {
         const isBuy = v === '买入' || v === 'BUY';
         return (
           <Tag color={isBuy ? 'red' : 'green'} style={{ fontWeight: 600 }}>
@@ -108,7 +114,7 @@ export default function TrendAnalysis({ isDark }) {
       title: '信号强度',
       dataIndex: 'strength',
       key: 'strength',
-      render: (v) => {
+      render: (v: number | null | undefined) => {
         if (v === null || v === undefined) return '--';
         const pct = Math.round(Number(v) * 100);
         const color = pct > 70 ? '#f85149' : pct > 40 ? '#e6c73a' : '#3fb950';
@@ -141,7 +147,7 @@ export default function TrendAnalysis({ isDark }) {
 
       <Card title="策略信号仪表盘" styles={{ body: { padding: '0' } }}>
         <Spin spinning={signalsLoading}>
-          <Table
+          <Table<SignalData>
             dataSource={signals}
             columns={signalColumns}
             rowKey={(r) => `${r.stock_code}-${r.signal_date}-${r.signal_type}`}
@@ -198,7 +204,7 @@ export default function TrendAnalysis({ isDark }) {
   );
 }
 
-function buildCompareChart(data, isDark) {
+function buildCompareChart(data: CompareStock[], isDark: boolean): Record<string, unknown> {
   if (!data || data.length === 0) return {};
 
   const textColor = isDark ? '#e6edf3' : '#1f1f1f';
@@ -254,7 +260,7 @@ function buildCompareChart(data, isDark) {
   };
 }
 
-function buildRotationChart(data, isDark) {
+function buildRotationChart(data: RotationItem[], isDark: boolean): Record<string, unknown> {
   if (!data || data.length === 0) return {};
 
   const textColor = isDark ? '#e6edf3' : '#1f1f1f';

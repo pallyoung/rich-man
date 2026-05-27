@@ -1,16 +1,27 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { AutoComplete, Input } from 'antd';
+import type { DefaultOptionType } from 'antd/es/select';
 import { SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import api from '../utils/api';
+import { apiGet, apiPost } from '../utils/api';
+import type { SearchResult } from '../types';
 
-export default function StockSearch({ style, onSelect: onSelectProp }) {
-  const [options, setOptions] = useState([]);
-  const [loading, setLoading] = useState(false);
+interface StockSearchProps {
+  style?: React.CSSProperties;
+  onSelect?: (value: string) => void;
+}
+
+interface SearchOption extends DefaultOptionType {
+  name?: string;
+}
+
+export default function StockSearch({ style, onSelect: onSelectProp }: StockSearchProps) {
+  const [options, setOptions] = useState<SearchOption[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
   const navigate = useNavigate();
-  const timerRef = useRef(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleSearch = useCallback((value) => {
+  const handleSearch = useCallback((value: string) => {
     if (timerRef.current) clearTimeout(timerRef.current);
     if (!value || value.trim().length === 0) {
       setOptions([]);
@@ -19,8 +30,8 @@ export default function StockSearch({ style, onSelect: onSelectProp }) {
     timerRef.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const res = await api.get('/stock/search', { params: { keyword: value.trim() } });
-        const items = Array.isArray(res) ? res : [];
+        const res = await apiGet('/stock/search', { keyword: value.trim() });
+        const items: SearchResult[] = Array.isArray(res) ? res : [];
         setOptions(
           items.map((item) => ({
             value: item.code,
@@ -42,7 +53,7 @@ export default function StockSearch({ style, onSelect: onSelectProp }) {
   }, []);
 
   const handleSelect = useCallback(
-    (value) => {
+    (value: string) => {
       if (onSelectProp) {
         onSelectProp(value);
       } else {
@@ -64,7 +75,7 @@ export default function StockSearch({ style, onSelect: onSelectProp }) {
         placeholder="输入股票代码或名称搜索"
         prefix={<SearchOutlined />}
         allowClear
-        loading={loading}
+        
       />
     </AutoComplete>
   );

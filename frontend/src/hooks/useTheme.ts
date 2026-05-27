@@ -1,7 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 
-export default function useTheme() {
-  const [theme, setTheme] = useState(() => {
+export interface UseThemeReturn {
+  theme: string;
+  toggleTheme: () => void;
+  isDark: boolean;
+}
+
+export default function useTheme(): UseThemeReturn {
+  const [theme, setTheme] = useState<string>(() => {
     return localStorage.getItem('richman-theme') || 'dark';
   });
 

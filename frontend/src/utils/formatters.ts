@@ -1,18 +1,18 @@
 import dayjs from 'dayjs';
 
-export function formatPrice(num) {
+export function formatPrice(num: number | null | undefined): string {
   if (num === null || num === undefined || isNaN(num)) return '--';
   return Number(num).toFixed(2);
 }
 
-export function formatPercent(num) {
+export function formatPercent(num: number | null | undefined): string {
   if (num === null || num === undefined || isNaN(num)) return '--';
   const val = Number(num);
   const sign = val > 0 ? '+' : '';
   return `${sign}${val.toFixed(2)}%`;
 }
 
-export function getPercentColor(num) {
+export function getPercentColor(num: number | null | undefined): string {
   if (num === null || num === undefined || isNaN(num)) return '';
   const val = Number(num);
   if (val > 0) return 'stock-up';
@@ -20,7 +20,7 @@ export function getPercentColor(num) {
   return 'stock-flat';
 }
 
-export function formatVolume(num) {
+export function formatVolume(num: number | null | undefined): string {
   if (num === null || num === undefined || isNaN(num)) return '--';
   const val = Number(num);
   if (Math.abs(val) >= 1e8) {
@@ -32,7 +32,7 @@ export function formatVolume(num) {
   return `${val.toFixed(0)}手`;
 }
 
-export function formatAmount(num) {
+export function formatAmount(num: number | null | undefined): string {
   if (num === null || num === undefined || isNaN(num)) return '--';
   const val = Number(num);
   if (Math.abs(val) >= 1e8) {
@@ -44,12 +44,12 @@ export function formatAmount(num) {
   return val.toFixed(2);
 }
 
-export function formatDate(dateStr) {
+export function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '--';
   return dayjs(dateStr).format('YYYY-MM-DD');
 }
 
-export function formatDateTime(dateStr) {
+export function formatDateTime(dateStr: string | null | undefined): string {
   if (!dateStr) return '--';
   return dayjs(dateStr).format('YYYY-MM-DD HH:mm:ss');
 }

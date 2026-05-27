@@ -2,20 +2,36 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card, Row, Col, Spin, Typography, Descriptions, Tabs, Table, Checkbox,
-  Space, Empty, Tag, Button,
+  Space, Empty, Tag,
 } from 'antd';
+import type { TableColumnsType } from 'antd';
 import {
-  FullscreenOutlined, FullscreenExitOutlined, ArrowUpOutlined, ArrowDownOutlined,
+  FullscreenOutlined, FullscreenExitOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import StockSearch from '../components/StockSearch';
 import KLineChart from '../components/KLineChart';
-import api from '../utils/api';
-import { formatPrice, formatPercent, getPercentColor, formatVolume, formatAmount } from '../utils/formatters';
+import { apiGet, apiPost } from '../utils/api';
+import { formatPrice, formatPercent, formatVolume, formatAmount } from '../utils/formatters';
+import type { StockRealtime, KLineItem, KLineObject, FundamentalRow, IntradayPoint, IndicatorConfig } from '../types';
 
 const { Title, Text } = Typography;
 
-const maOptions = [
+interface StockAnalysisProps {
+  isDark: boolean;
+}
+
+interface MAOption {
+  label: string;
+  value: number;
+}
+
+interface IndicatorCheckbox {
+  label: string;
+  value: string;
+}
+
+const maOptions: MAOption[] = [
   { label: 'MA5', value: 5 },
   { label: 'MA10', value: 10 },
   { label: 'MA20', value: 20 },
@@ -24,54 +40,56 @@ const maOptions = [
   { label: 'MA250', value: 250 },
 ];
 
-const indicatorCheckboxes = [
+const indicatorCheckboxes: IndicatorCheckbox[] = [
   { label: 'MACD', value: 'macd' },
   { label: 'KDJ', value: 'kdj' },
   { label: 'RSI', value: 'rsi' },
   { label: 'BOLL', value: 'boll' },
 ];
 
-export default function StockAnalysis({ isDark }) {
-  const { code } = useParams();
+export default function StockAnalysis({ isDark }: StockAnalysisProps) {
+  const { code } = useParams<{ code?: string }>();
   const navigate = useNavigate();
-  const [stockInfo, setStockInfo] = useState(null);
-  const [klineData, setKlineData] = useState([]);
-  const [fundamental, setFundamental] = useState([]);
-  const [intradayData, setIntradayData] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [selectedMA, setSelectedMA] = useState([5, 10, 20, 60]);
-  const [selectedIndicators, setSelectedIndicators] = useState(['macd']);
-  const [activeBottomTab, setActiveBottomTab] = useState('fundamental');
+  const [stockInfo, setStockInfo] = useState<StockRealtime | null>(null);
+  const [klineData, setKlineData] = useState<KLineItem[]>([]);
+  const [fundamental, setFundamental] = useState<FundamentalRow[]>([]);
+  const [intradayData, setIntradayData] = useState<IntradayPoint[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [selectedMA, setSelectedMA] = useState<number[]>([5, 10, 20, 60]);
+  const [selectedIndicators, setSelectedIndicators] = useState<string[]>(['macd']);
+  const [activeBottomTab, setActiveBottomTab] = useState<string>('fundamental');
 
-  const fetchStockData = useCallback(async (stockCode) => {
+  const fetchStockData = useCallback(async (stockCode: string) => {
     if (!stockCode) return;
     setLoading(true);
     try {
       const [infoRes, klineRes, fundRes, intradayRes] = await Promise.allSettled([
-        api.get(`/stock/${stockCode}/realtime`),
-        api.get(`/stock/${stockCode}/kline`, { params: { period: 'daily', count: 250 } }),
-        api.get(`/stock/${stockCode}/fundamental`),
-        api.get(`/stock/${stockCode}/intraday`),
+        apiGet(`/stock/${stockCode}/realtime`),
+        apiGet(`/stock/${stockCode}/kline`, { period: 'daily', count: 250 }),
+        apiGet(`/stock/${stockCode}/fundamental`),
+        apiGet(`/stock/${stockCode}/intraday`),
       ]);
-      if (infoRes.status === 'fulfilled') setStockInfo(infoRes.value);
+      if (infoRes.status === 'fulfilled') setStockInfo(infoRes.value as StockRealtime);
       if (klineRes.status === 'fulfilled') {
         const kr = klineRes.value;
-        const raw = Array.isArray(kr) ? kr : (kr?.data || kr?.kline || []);
-        // Transform object format to array format for KLineChart: [date, open, close, high, low, volume]
-        const kd = raw.map(d => {
-          if (Array.isArray(d)) return d;
-          return [d.date, d.open, d.close, d.high, d.low, d.volume];
+        const raw: (KLineItem | KLineObject)[] = Array.isArray(kr) ? kr as (KLineItem | KLineObject)[] : ((kr as { data?: KLineItem[]; kline?: KLineItem[] })?.data || (kr as { data?: KLineItem[]; kline?: KLineItem[] })?.kline || []);
+        const kd: KLineItem[] = raw.map((d) => {
+          if (Array.isArray(d)) return d as KLineItem;
+          const obj = d as KLineObject;
+          return [obj.date, obj.open, obj.high, obj.low, obj.close, obj.volume] as KLineItem;
         });
         setKlineData(kd);
       }
       if (fundRes.status === 'fulfilled') {
         const fd = fundRes.value;
-        const list = Array.isArray(fd) ? fd : (fd?.list || Object.entries(fd).map(([k, v]) => ({ field: k, value: String(v) })));
+        const list: FundamentalRow[] = Array.isArray(fd)
+          ? fd as FundamentalRow[]
+          : ((fd as { list?: FundamentalRow[] })?.list || Object.entries(fd as Record<string, unknown>).map(([k, v]) => ({ field: k, value: String(v) })));
         setFundamental(list);
       }
       if (intradayRes.status === 'fulfilled') {
-        const id = Array.isArray(intradayRes.value) ? intradayRes.value : [];
+        const id = Array.isArray(intradayRes.value) ? intradayRes.value as IntradayPoint[] : [];
         setIntradayData(id);
       }
     } catch {
@@ -85,11 +103,11 @@ export default function StockAnalysis({ isDark }) {
     if (code) fetchStockData(code);
   }, [code, fetchStockData]);
 
-  const handleSearchSelect = (val) => {
+  const handleSearchSelect = (val: string) => {
     navigate(`/stock/${val}`);
   };
 
-  const klineIndicators = {
+  const klineIndicators: IndicatorConfig = {
     ma_periods: selectedMA,
     macd: selectedIndicators.includes('macd'),
     kdj: selectedIndicators.includes('kdj'),
@@ -104,7 +122,7 @@ export default function StockAnalysis({ isDark }) {
   const isDown = Number(change) < 0;
   const priceColor = isUp ? 'var(--color-danger)' : isDown ? 'var(--color-success)' : 'var(--color-text-secondary)';
 
-  const fundamentalColumns = fundamental.length > 0
+  const fundamentalColumns: TableColumnsType<FundamentalRow> = fundamental.length > 0
     ? Object.keys(fundamental[0] || {}).map((k) => ({
         title: k,
         dataIndex: k,
@@ -140,90 +158,63 @@ export default function StockAnalysis({ isDark }) {
         <Spin spinning={loading} size="large">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {stockInfo && (
-              <Card styles={{ body: { padding: '12px 20px' } }}>
+              <Card styles={{ body: { padding: '16px 24px' } }}>
                 <Row gutter={24} align="middle">
                   <Col>
                     <Title level={4} style={{ margin: 0, color: 'var(--color-text)' }}>
-                      {stockInfo.name || '--'}
-                      <Text style={{ marginLeft: 10, fontSize: 14, color: 'var(--color-text-secondary)' }}>
-                        {code}
-                      </Text>
+                      {stockInfo.name}{' '}
+                      <Text type="secondary" style={{ fontSize: 14 }}>{stockInfo.code}</Text>
                     </Title>
                   </Col>
                   <Col>
-                    <Text
-                      style={{ fontSize: 28, fontWeight: 700, color: priceColor }}
-                    >
-                      {formatPrice(price)}
-                    </Text>
+                    <span style={{ fontSize: 28, fontWeight: 700, color: priceColor }}>
+                      {formatPrice(price as number)}
+                    </span>
                   </Col>
                   <Col>
-                    <Space size={12}>
-                      <Text style={{ color: priceColor, fontWeight: 600 }}>
-                        {isUp ? <ArrowUpOutlined /> : isDown ? <ArrowDownOutlined /> : null}
-                        {' '}
-                        {isUp ? '+' : ''}{typeof change === 'number' ? change.toFixed(2) : change}
-                      </Text>
-                      <Text style={{ color: priceColor, fontWeight: 600 }}>
-                        {formatPercent(changePct)}
-                      </Text>
-                    </Space>
+                    <span style={{ fontSize: 16, fontWeight: 600, color: priceColor }}>
+                      {isUp ? '+' : ''}{typeof change === 'number' ? change.toFixed(2) : '--'}
+                    </span>
                   </Col>
-                  {stockInfo.high !== undefined && (
-                    <>
-                      <Col>
-                        <Text style={{ color: 'var(--color-text-secondary)', fontSize: 13 }}>
-                          最高: <span style={{ color: 'var(--color-danger)' }}>{formatPrice(stockInfo.high)}</span>
-                        </Text>
-                      </Col>
-                      <Col>
-                        <Text style={{ color: 'var(--color-text-secondary)', fontSize: 13 }}>
-                          最低: <span style={{ color: 'var(--color-success)' }}>{formatPrice(stockInfo.low)}</span>
-                        </Text>
-                      </Col>
-                      <Col>
-                        <Text style={{ color: 'var(--color-text-secondary)', fontSize: 13 }}>
-                          成交量: {formatVolume(stockInfo.volume)}
-                        </Text>
-                      </Col>
-                      <Col>
-                        <Text style={{ color: 'var(--color-text-secondary)', fontSize: 13 }}>
-                          成交额: {formatAmount(stockInfo.amount)}
-                        </Text>
-                      </Col>
-                    </>
-                  )}
+                  <Col>
+                    <span style={{ fontSize: 16, fontWeight: 600, color: priceColor }}>
+                      {typeof changePct === 'number' ? formatPercent(changePct) : '--'}
+                    </span>
+                  </Col>
                 </Row>
               </Card>
             )}
 
             <Row gutter={16}>
-              <Col xs={24} lg={18}>
-                <Card
-                  title="K线图"
-                  extra={
-                    <Button
-                      type="text"
-                      icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
-                      onClick={() => setIsFullscreen(!isFullscreen)}
+              <Col xs={24} lg={20}>
+                <Card styles={{ body: { padding: 0 } }}>
+                  <div style={{ position: 'relative' }}>
+                    <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 2 }}>
+                      <Space>
+                        <Tag
+                          icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => setIsFullscreen(!isFullscreen)}
+                        >
+                          {isFullscreen ? '退出全屏' : '全屏'}
+                        </Tag>
+                      </Space>
+                    </div>
+                    <KLineChart
+                      data={klineData}
+                      indicators={klineIndicators}
+                      title=""
+                      height={isFullscreen ? window.innerHeight - 200 : 600}
+                      theme={isDark ? 'dark' : 'light'}
                     />
-                  }
-                  styles={{ body: { padding: 0 } }}
-                >
-                  <KLineChart
-                    data={klineData}
-                    indicators={klineIndicators}
-                    title={`${stockInfo?.name || code}`}
-                    height={isFullscreen ? 700 : 500}
-                    theme={isDark ? 'dark' : 'light'}
-                  />
+                  </div>
                 </Card>
               </Col>
-              <Col xs={24} lg={6}>
-                <Card title="技术指标" styles={{ body: { padding: '12px' } }}>
+              <Col xs={24} lg={4}>
+                <Card size="small" styles={{ body: { padding: 12 } }}>
                   <div style={{ marginBottom: 16 }}>
                     <Text strong style={{ display: 'block', marginBottom: 8, color: 'var(--color-text)' }}>
-                      均线
+                      均线选择
                     </Text>
                     <Checkbox.Group
                       value={selectedMA}
@@ -266,10 +257,10 @@ export default function StockAnalysis({ isDark }) {
                     key: 'fundamental',
                     label: '基本面',
                     children: fundamental.length > 0 ? (
-                      <Table
+                      <Table<FundamentalRow>
                         dataSource={fundamental}
                         columns={fundamentalColumns}
-                        rowKey={(_, i) => i}
+                        rowKey={(_, i) => String(i)}
                         size="small"
                         pagination={false}
                         scroll={{ x: 600 }}
@@ -298,15 +289,15 @@ export default function StockAnalysis({ isDark }) {
   );
 }
 
-function buildIntradayOption(data, isDark) {
+function buildIntradayOption(data: IntradayPoint[], isDark: boolean): Record<string, unknown> {
   if (!data || data.length === 0) return {};
   const textColor = isDark ? '#e6edf3' : '#1f1f1f';
   const subTextColor = isDark ? '#8b949e' : '#666666';
   const gridBorderColor = isDark ? '#30363d' : '#d9d9d9';
 
-  const times = data.map((d) => d.time || d[0]);
-  const prices = data.map((d) => d.price ?? d[1]);
-  const volumes = data.map((d) => d.volume ?? d[2]);
+  const times = data.map((d) => d.time);
+  const prices = data.map((d) => d.price);
+  const volumes = data.map((d) => d.volume);
 
   const basePrice = prices[0];
 
@@ -353,7 +344,7 @@ function buildIntradayOption(data, isDark) {
         axisLabel: {
           color: subTextColor,
           fontSize: 10,
-          formatter: (v) => (v >= 1e4 ? `${(v / 1e4).toFixed(0)}万` : v),
+          formatter: (v: number) => (v >= 1e4 ? `${(v / 1e4).toFixed(0)}万` : String(v)),
         },
       },
     ],

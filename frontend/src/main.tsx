@@ -7,7 +7,7 @@ import App from './App';
 import './styles/theme.css';
 
 function Root() {
-  const [isDark, setIsDark] = React.useState(() => {
+  const [isDark, setIsDark] = React.useState<boolean>(() => {
     return (localStorage.getItem('richman-theme') || 'dark') === 'dark';
   });
 
@@ -42,7 +42,7 @@ function Root() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(
+ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <Root />
   </React.StrictMode>

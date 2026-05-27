@@ -1,45 +1,55 @@
 import React, { useState } from 'react';
 import {
   Card, Row, Col, Select, DatePicker, InputNumber, Button, Table, Spin,
-  Typography, Statistic, Space, Divider, Form, Input, Tabs, Empty,
+  Typography, Statistic, Space, Form, Input, Tabs, Empty,
 } from 'antd';
+import type { TableColumnsType } from 'antd';
 import {
   LineChartOutlined, BarChartOutlined, TrophyOutlined,
   PercentageOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import EquityCurve from '../components/EquityCurve';
-import api from '../utils/api';
+import { apiGet, apiPost } from '../utils/api';
+import type { BacktestResult, TradeRecord, FactorResult } from '../types';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
-const { Option } = Select;
 
-const strategies = [
+interface QuantStrategyProps {
+  isDark: boolean;
+}
+
+interface StrategyOption {
+  value: string;
+  label: string;
+}
+
+const strategies: StrategyOption[] = [
   { value: 'dual_ma', label: '双均线策略' },
   { value: 'macd', label: 'MACD策略' },
   { value: 'momentum', label: '动量策略' },
   { value: 'turtle', label: '海龟交易策略' },
 ];
 
-const strategyDescs = {
+const strategyDescs: Record<string, string> = {
   dual_ma: '双均线策略通过短期均线和长期均线的交叉来产生交易信号。当短期均线上穿长期均线时买入，下穿时卖出。',
   macd: 'MACD策略利用MACD指标的金叉和死叉作为买卖信号，结合MACD柱状图判断趋势强度。',
   momentum: '动量策略基于股票价格的动量变化，当动量由负转正时买入，由正转负时卖出。',
   turtle: '海龟交易策略是经典的趋势跟踪系统，当价格突破N日最高价时入场，跌破M日最低价时离场。',
 };
 
-export default function QuantStrategy({ isDark }) {
-  const [strategy, setStrategy] = useState('dual_ma');
+export default function QuantStrategy({ isDark }: QuantStrategyProps) {
+  const [strategy, setStrategy] = useState<string>('dual_ma');
   const [form] = Form.useForm();
-  const [backtestResult, setBacktestResult] = useState(null);
-  const [trades, setTrades] = useState([]);
-  const [equityCurve, setEquityCurve] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('backtest');
+  const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
+  const [trades, setTrades] = useState<TradeRecord[]>([]);
+  const [equityCurve, setEquityCurve] = useState<BacktestResult['equity_curve']>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<string>('backtest');
 
-  const [factorResults, setFactorResults] = useState([]);
-  const [factorLoading, setFactorLoading] = useState(false);
-  const [factorCode, setFactorCode] = useState('');
+  const [factorResults, setFactorResults] = useState<FactorResult[]>([]);
+  const [factorLoading, setFactorLoading] = useState<boolean>(false);
+  const [factorCode, setFactorCode] = useState<string>('');
 
   async function runBacktest() {
     try {
@@ -55,10 +65,11 @@ export default function QuantStrategy({ isDark }) {
         short_period: values.short_period,
         long_period: values.long_period,
       };
-      const res = await api.post('/quant/backtest', params);
-      setBacktestResult(res);
-      setEquityCurve(res?.equity_curve || []);
-      setTrades(res?.trades || []);
+      const res = await apiPost('/quant/backtest', params);
+      const result = res as BacktestResult;
+      setBacktestResult(result);
+      setEquityCurve(result?.equity_curve || []);
+      setTrades(result?.trades || []);
     } catch {
       // handled by interceptor or form validation
     } finally {
@@ -70,8 +81,8 @@ export default function QuantStrategy({ isDark }) {
     if (!factorCode.trim()) return;
     setFactorLoading(true);
     try {
-      const res = await api.post('/quant/factor-select', { stock_codes: factorCode.split(',').map((s) => s.trim()) });
-      setFactorResults(Array.isArray(res) ? res : []);
+      const res = await apiPost('/quant/factor-select', { stock_codes: factorCode.split(',').map((s) => s.trim()) });
+      setFactorResults(Array.isArray(res) ? res as FactorResult[] : []);
     } catch {
       setFactorResults([]);
     } finally {
@@ -88,31 +99,31 @@ export default function QuantStrategy({ isDark }) {
     { title: '胜率', value: metrics.win_rate, suffix: '%', color: (metrics.win_rate || 0) >= 50 ? 'var(--color-success)' : 'var(--color-text-secondary)', icon: <PercentageOutlined /> },
   ];
 
-  const tradeColumns = [
+  const tradeColumns: TableColumnsType<TradeRecord> = [
     { title: '日期', dataIndex: 'date', key: 'date', width: 110 },
     {
       title: '操作',
       dataIndex: 'action',
       key: 'action',
       width: 80,
-      render: (v) => (
+      render: (v: string) => (
         <Text style={{ color: v === '买入' || v === 'BUY' ? 'var(--color-danger)' : 'var(--color-success)', fontWeight: 600 }}>
           {v}
         </Text>
       ),
     },
-    { title: '价格', dataIndex: 'price', key: 'price', width: 100, render: (v) => v !== null ? Number(v).toFixed(2) : '--' },
-    { title: '数量', dataIndex: 'shares', key: 'shares', width: 100, render: (v) => v !== null ? Number(v).toLocaleString() : '--' },
+    { title: '价格', dataIndex: 'price', key: 'price', width: 100, render: (v: number | null) => v !== null ? Number(v).toFixed(2) : '--' },
+    { title: '数量', dataIndex: 'shares', key: 'shares', width: 100, render: (v: number | null) => v !== null ? Number(v).toLocaleString() : '--' },
     {
       title: '盈亏',
       dataIndex: 'pnl',
       key: 'pnl',
       width: 100,
-      render: (v) => {
+      render: (v: number | null | undefined) => {
         if (v === null || v === undefined) return '--';
         const num = Number(v);
         return (
-          <Text style={{ color: num >= 0 ? 'var(--color-danger)' : 'var(--color-success)' }}>
+          <Text style={{ color: num >= 0 ? 'var(--color-danger)' : 'var(--color-success)', fontWeight: 600 }}>
             {num >= 0 ? '+' : ''}{num.toFixed(2)}
           </Text>
         );
@@ -120,15 +131,11 @@ export default function QuantStrategy({ isDark }) {
     },
   ];
 
-  const factorColumns = factorResults.length > 0
-    ? Object.keys(factorResults[0]).map((k) => ({
-        title: k,
-        dataIndex: k,
-        key: k,
-        ellipsis: true,
-        sorter: typeof factorResults[0][k] === 'number' ? (a, b) => a[k] - b[k] : undefined,
-      }))
-    : [];
+  const factorColumns: TableColumnsType<FactorResult> = [
+    { title: '代码', dataIndex: 'code', key: 'code', width: 100 },
+    { title: '名称', dataIndex: 'name', key: 'name', width: 100 },
+    { title: '综合评分', dataIndex: 'score', key: 'score', width: 100, render: (v: number) => v !== undefined ? Number(v).toFixed(2) : '--' },
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -146,32 +153,25 @@ export default function QuantStrategy({ isDark }) {
             children: (
               <Row gutter={20}>
                 <Col xs={24} lg={7}>
-                  <Card title="策略配置" styles={{ body: { padding: '16px' } }}>
-                    <Form form={form} layout="vertical" initialValues={{ initial_capital: 1000000, commission: 0.0003 }}>
-                      <Form.Item label="策略类型">
-                        <Select value={strategy} onChange={setStrategy} style={{ width: '100%' }}>
-                          {strategies.map((s) => (
-                            <Option key={s.value} value={s.value}>{s.label}</Option>
-                          ))}
-                        </Select>
+                  <Card title="参数配置" styles={{ body: { padding: '16px' } }}>
+                    <Form form={form} layout="vertical">
+                      <Form.Item label="策略选择">
+                        <Select
+                          value={strategy}
+                          onChange={setStrategy}
+                          options={strategies}
+                          style={{ width: '100%' }}
+                        />
                       </Form.Item>
-                      <Text type="secondary" style={{ display: 'block', marginBottom: 16, fontSize: 12 }}>
+                      <div style={{ marginBottom: 16, color: 'var(--color-text-secondary)', fontSize: 13 }}>
                         {strategyDescs[strategy]}
-                      </Text>
+                      </div>
 
-                      <Form.Item
-                        name="stock_code"
-                        label="股票代码"
-                        rules={[{ required: true, message: '请输入股票代码' }]}
-                      >
-                        <Input placeholder="例如: 600519" />
+                      <Form.Item name="stock_code" label="股票代码" rules={[{ required: true, message: '请输入股票代码' }]}>
+                        <Input placeholder="如 600519" />
                       </Form.Item>
 
-                      <Form.Item
-                        name="date_range"
-                        label="回测日期"
-                        rules={[{ required: true, message: '请选择日期范围' }]}
-                      >
+                      <Form.Item name="date_range" label="回测区间">
                         <RangePicker style={{ width: '100%' }} />
                       </Form.Item>
 
@@ -236,7 +236,7 @@ export default function QuantStrategy({ isDark }) {
                       </Card>
 
                       <Card title="交易记录" styles={{ body: { padding: '0' } }}>
-                        <Table
+                        <Table<TradeRecord>
                           dataSource={trades}
                           columns={tradeColumns}
                           rowKey={(r) => `${r.date}-${r.action}-${r.price}`}
@@ -270,10 +270,10 @@ export default function QuantStrategy({ isDark }) {
                     </Button>
                   </Space>
                   {factorResults.length > 0 ? (
-                    <Table
+                    <Table<FactorResult>
                       dataSource={factorResults}
                       columns={factorColumns}
-                      rowKey={(_, i) => i}
+                      rowKey={(_, i) => String(i)}
                       size="small"
                       pagination={{ pageSize: 20 }}
                       scroll={{ x: 600 }}

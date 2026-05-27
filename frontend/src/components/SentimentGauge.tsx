@@ -1,7 +1,13 @@
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 
-export default function SentimentGauge({ value = 50, height = 260, theme: themeMode = 'dark' }) {
+interface SentimentGaugeProps {
+  value?: number;
+  height?: number;
+  theme?: 'dark' | 'light';
+}
+
+export default function SentimentGauge({ value = 50, height = 260, theme: themeMode = 'dark' }: SentimentGaugeProps) {
   const option = useMemo(() => {
     const textColor = themeMode === 'dark' ? '#e6edf3' : '#1f1f1f';
 

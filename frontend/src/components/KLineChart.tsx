@@ -1,5 +1,14 @@
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
+import type { KLineItem, IndicatorConfig } from '../types';
+
+interface KLineChartProps {
+  data?: KLineItem[];
+  indicators?: IndicatorConfig;
+  title?: string;
+  height?: number;
+  theme?: 'dark' | 'light';
+}
 
 export default function KLineChart({
   data = [],
@@ -7,7 +16,7 @@ export default function KLineChart({
   title = '',
   height = 600,
   theme: themeMode = 'dark',
-}) {
+}: KLineChartProps) {
   const option = useMemo(() => {
     if (!data || data.length === 0) return {};
 
@@ -27,7 +36,6 @@ export default function KLineChart({
     const showBOLL = indicators.boll === true;
     const showVolume = indicators.volume !== false;
 
-    // Count sub-charts
     let subChartCount = 0;
     if (showVolume) subChartCount++;
     if (showMACD) subChartCount++;
@@ -37,13 +45,13 @@ export default function KLineChart({
     const mainGridHeight = subChartCount === 0 ? 70 : subChartCount === 1 ? 55 : subChartCount === 2 ? 42 : 32;
     const subGridHeight = subChartCount <= 1 ? 18 : subChartCount === 2 ? 16 : 13;
 
-    const grids = [];
-    const xAxes = [];
-    const yAxes = [];
-    const seriesList = [];
+    const grids: Record<string, unknown>[] = [];
+    const xAxes: Record<string, unknown>[] = [];
+    const yAxes: Record<string, unknown>[] = [];
+    const seriesList: Record<string, unknown>[] = [];
     let currentTop = 8;
 
-    // Main chart grid (candlestick + MA + BOLL)
+    // Main chart grid
     grids.push({
       left: 60, right: 30,
       top: `${currentTop + 4}%`,
@@ -88,12 +96,12 @@ export default function KLineChart({
       });
     });
 
-    // BOLL bands overlay
+    // BOLL bands
     if (showBOLL) {
       const closePrices = data.map((d) => Number(d[4]));
       const bollPeriod = 20;
       const bollK = 2;
-      const mid = [], upper = [], lower = [];
+      const mid: (number | null)[] = [], upper: (number | null)[] = [], lower: (number | null)[] = [];
       for (let i = 0; i < closePrices.length; i++) {
         if (i < bollPeriod - 1) {
           mid.push(null); upper.push(null); lower.push(null);
@@ -135,23 +143,19 @@ export default function KLineChart({
       yAxes.push({
         gridIndex: xi, splitNumber: 2,
         splitLine: { lineStyle: { color: gridBorderColor, opacity: 0.3 } },
-        axisLabel: {
-          color: subTextColor, fontSize: 10,
-          formatter: (v) => {
-            if (v >= 1e8) return `${(v / 1e8).toFixed(0)}亿`;
-            if (v >= 1e4) return `${(v / 1e4).toFixed(0)}万`;
-            return v;
-          },
-        },
+        axisLabel: { color: subTextColor, fontSize: 10 },
         axisLine: { lineStyle: { color: gridBorderColor } },
       });
       seriesList.push({
-        name: '成交量', type: 'bar',
-        data: volumes.map((v, i) => ({
-          value: v,
-          itemStyle: { color: ohlc[i][0] >= ohlc[i][1] ? 'rgba(248,81,73,0.7)' : 'rgba(63,185,80,0.7)' },
-        })),
+        name: '成交量', type: 'bar', data: volumes,
         xAxisIndex: xi, yAxisIndex: xi,
+        itemStyle: {
+          color: (p: { dataIndex: number }) => {
+            const idx = p.dataIndex;
+            if (idx > 0 && data[idx][4] >= data[idx - 1][4]) return 'rgba(248,81,73,0.5)';
+            return 'rgba(63,185,80,0.5)';
+          },
+        },
       });
       currentTop += subGridHeight + 2;
     }
@@ -161,22 +165,9 @@ export default function KLineChart({
       const closePrices = data.map((d) => Number(d[4]));
       const ema12 = calcEMA(closePrices, 12);
       const ema26 = calcEMA(closePrices, 26);
-      const dif = ema12.map((v, i) => (v !== null && ema26[i] !== null ? +(v - ema26[i]).toFixed(4) : null));
-      const dea = calcEMA(dif.filter((v) => v !== null), 9);
-      const deaFull = [];
-      let deaIdx = 0;
-      for (let i = 0; i < dif.length; i++) {
-        if (dif[i] !== null) {
-          deaFull.push(dea[deaIdx] !== undefined ? +dea[deaIdx].toFixed(4) : null);
-          deaIdx++;
-        } else {
-          deaFull.push(null);
-        }
-      }
-      const macdBar = dif.map((v, i) => {
-        if (v !== null && deaFull[i] !== null) return +((v - deaFull[i]) * 2).toFixed(4);
-        return null;
-      });
+      const dif = ema12.map((v, i) => (v !== null && ema26[i] !== null) ? +((v as number) - (ema26[i] as number)).toFixed(4) : null);
+      const dea = calcEMA(dif.map(v => v ?? 0), 9);
+      const macdHist = dif.map((v, i) => (v !== null && dea[i] !== null) ? +(((v as number) - (dea[i] as number)) * 2).toFixed(4) : null);
 
       grids.push({
         left: 60, right: 30,
@@ -184,10 +175,9 @@ export default function KLineChart({
         height: `${subGridHeight}%`,
       });
       const xi = grids.length - 1;
-      const isLastSub = !showKDJ && !showRSI;
       xAxes.push({
         type: 'category', data: dates, gridIndex: xi,
-        axisLabel: { show: isLastSub, color: subTextColor, fontSize: 10 },
+        axisLabel: { show: subChartCount <= 2, color: subTextColor, fontSize: 10 },
         axisLine: { lineStyle: { color: gridBorderColor } },
         axisTick: { show: false },
       });
@@ -198,16 +188,9 @@ export default function KLineChart({
         axisLine: { lineStyle: { color: gridBorderColor } },
       });
       seriesList.push(
-        {
-          name: 'MACD', type: 'bar',
-          data: macdBar.map((v) => ({
-            value: v,
-            itemStyle: { color: v !== null && v >= 0 ? '#f85149' : '#3fb950' },
-          })),
-          xAxisIndex: xi, yAxisIndex: xi,
-        },
         { name: 'DIF', type: 'line', data: dif, xAxisIndex: xi, yAxisIndex: xi, smooth: true, symbol: 'none', lineStyle: { width: 1, color: '#58a6ff' } },
-        { name: 'DEA', type: 'line', data: deaFull, xAxisIndex: xi, yAxisIndex: xi, smooth: true, symbol: 'none', lineStyle: { width: 1, color: '#e6c73a' } },
+        { name: 'DEA', type: 'line', data: dea, xAxisIndex: xi, yAxisIndex: xi, smooth: true, symbol: 'none', lineStyle: { width: 1, color: '#e6c73a' } },
+        { name: 'MACD', type: 'bar', data: macdHist, xAxisIndex: xi, yAxisIndex: xi, itemStyle: { color: (p: { value: number | null }) => (p.value ?? 0) >= 0 ? '#f85149' : '#3fb950' } },
       );
       currentTop += subGridHeight + 2;
     }
@@ -225,10 +208,9 @@ export default function KLineChart({
         height: `${subGridHeight}%`,
       });
       const xi = grids.length - 1;
-      const isLastSub = !showRSI;
       xAxes.push({
         type: 'category', data: dates, gridIndex: xi,
-        axisLabel: { show: isLastSub, color: subTextColor, fontSize: 10 },
+        axisLabel: { show: subChartCount <= 3, color: subTextColor, fontSize: 10 },
         axisLine: { lineStyle: { color: gridBorderColor } },
         axisTick: { show: false },
       });
@@ -312,7 +294,7 @@ export default function KLineChart({
         backgroundColor: themeMode === 'dark' ? '#1c2028' : '#ffffff',
         borderColor: gridBorderColor,
         textStyle: { color: textColor, fontSize: 12 },
-        formatter: (params) => {
+        formatter: (params: { dataIndex: number }[]) => {
           if (!params || params.length === 0) return '';
           const idx = params[0].dataIndex;
           const d = data[idx];
@@ -323,10 +305,10 @@ export default function KLineChart({
           const high = Number(d[2]).toFixed(2);
           const low = Number(d[3]).toFixed(2);
           const vol = d[5];
-          let volStr;
+          let volStr: string;
           if (vol >= 1e8) volStr = `${(vol / 1e8).toFixed(2)}亿`;
           else if (vol >= 1e4) volStr = `${(vol / 1e4).toFixed(2)}万`;
-          else volStr = vol;
+          else volStr = String(vol);
           let html = `<div style="font-size:12px"><b>${date}</b><br/>`;
           html += `开盘: ${open} 收盘: ${close}<br/>`;
           html += `最高: ${high} 最低: ${low}<br/>`;
@@ -359,10 +341,10 @@ export default function KLineChart({
   return <ReactECharts option={option} style={{ height, width: '100%' }} />;
 }
 
-function calcEMA(data, period) {
-  const result = [];
+function calcEMA(data: number[], period: number): (number | null)[] {
+  const result: (number | null)[] = [];
   const k = 2 / (period + 1);
-  let ema = null;
+  let ema: number | null = null;
   for (let i = 0; i < data.length; i++) {
     if (data[i] === null || data[i] === undefined) {
       result.push(null);
@@ -375,11 +357,24 @@ function calcEMA(data, period) {
   return result;
 }
 
-function calcKDJ(closePrices, highPrices, lowPrices, n = 9, m1 = 3, m2 = 3) {
+interface KDJResult {
+  kValues: (number | null)[];
+  dValues: (number | null)[];
+  jValues: (number | null)[];
+}
+
+function calcKDJ(
+  closePrices: number[],
+  highPrices: number[],
+  lowPrices: number[],
+  n = 9,
+  m1 = 3,
+  m2 = 3
+): KDJResult {
   const len = closePrices.length;
-  const kValues = new Array(len).fill(null);
-  const dValues = new Array(len).fill(null);
-  const jValues = new Array(len).fill(null);
+  const kValues: (number | null)[] = new Array(len).fill(null);
+  const dValues: (number | null)[] = new Array(len).fill(null);
+  const jValues: (number | null)[] = new Array(len).fill(null);
 
   let prevK = 50, prevD = 50;
   for (let i = 0; i < len; i++) {
@@ -405,12 +400,11 @@ function calcKDJ(closePrices, highPrices, lowPrices, n = 9, m1 = 3, m2 = 3) {
   return { kValues, dValues, jValues };
 }
 
-function calcRSI(closePrices, period) {
-  const result = new Array(closePrices.length).fill(null);
+function calcRSI(closePrices: number[], period: number): (number | null)[] {
+  const result: (number | null)[] = new Array(closePrices.length).fill(null);
   const alpha = 1.0 / period;
   let avgGain = 0, avgLoss = 0;
 
-  // Initialize with first `period` changes
   for (let i = 1; i <= period && i < closePrices.length; i++) {
     const change = closePrices[i] - closePrices[i - 1];
     if (change > 0) avgGain += change;

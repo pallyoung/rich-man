@@ -1,5 +1,6 @@
 import React, { useState, useMemo, Suspense, lazy } from 'react';
 import { Layout, Menu, Switch, Space, Typography, Spin } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   DashboardOutlined,
   BarChartOutlined,
@@ -22,7 +23,12 @@ const NewsCenter = lazy(() => import('./pages/NewsCenter'));
 const { Sider, Header, Content } = Layout;
 const { Text } = Typography;
 
-const menuItems = [
+interface AppProps {
+  isDark: boolean;
+  toggleTheme: () => void;
+}
+
+const menuItems: MenuProps['items'] = [
   { key: '/', icon: <DashboardOutlined />, label: '市场总览' },
   { key: '/market', icon: <BarChartOutlined />, label: '行情中心' },
   { key: '/stock', icon: <StockOutlined />, label: '个股分析' },
@@ -31,19 +37,19 @@ const menuItems = [
   { key: '/news', icon: <ReadOutlined />, label: '资讯中心' },
 ];
 
-export default function App({ isDark, toggleTheme }) {
-  const [collapsed, setCollapsed] = useState(false);
+export default function App({ isDark, toggleTheme }: AppProps) {
+  const [collapsed, setCollapsed] = useState<boolean>(false);
   const navigate = useNavigate();
   const location = useLocation();
 
   const selectedKey = useMemo(() => {
     const path = location.pathname;
     if (path === '/') return '/';
-    const match = menuItems.find((m) => m.key !== '/' && path.startsWith(m.key));
-    return match ? match.key : '/';
+    const match = menuItems?.find((m) => m && 'key' in m && m.key !== '/' && path.startsWith(m.key as string));
+    return match && 'key' in match ? (match.key as string) : '/';
   }, [location.pathname]);
 
-  const handleMenuClick = ({ key }) => {
+  const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     if (key === '/stock') {
       navigate('/stock');
     } else {
