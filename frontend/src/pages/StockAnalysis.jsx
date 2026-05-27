@@ -49,19 +49,26 @@ export default function StockAnalysis({ isDark }) {
     setLoading(true);
     try {
       const [infoRes, klineRes, fundRes, intradayRes] = await Promise.allSettled([
-        api.get(`/stock/${stockCode}/info`),
+        api.get(`/stock/${stockCode}/realtime`),
         api.get(`/stock/${stockCode}/kline`, { params: { period: 'daily', count: 250 } }),
         api.get(`/stock/${stockCode}/fundamental`),
         api.get(`/stock/${stockCode}/intraday`),
       ]);
       if (infoRes.status === 'fulfilled') setStockInfo(infoRes.value);
       if (klineRes.status === 'fulfilled') {
-        const kd = Array.isArray(klineRes.value) ? klineRes.value : [];
+        const kr = klineRes.value;
+        const raw = Array.isArray(kr) ? kr : (kr?.data || kr?.kline || []);
+        // Transform object format to array format for KLineChart: [date, open, close, high, low, volume]
+        const kd = raw.map(d => {
+          if (Array.isArray(d)) return d;
+          return [d.date, d.open, d.close, d.high, d.low, d.volume];
+        });
         setKlineData(kd);
       }
       if (fundRes.status === 'fulfilled') {
-        const fd = Array.isArray(fundRes.value) ? fundRes.value : fundRes.value?.list || [];
-        setFundamental(fd);
+        const fd = fundRes.value;
+        const list = Array.isArray(fd) ? fd : (fd?.list || Object.entries(fd).map(([k, v]) => ({ field: k, value: String(v) })));
+        setFundamental(list);
       }
       if (intradayRes.status === 'fulfilled') {
         const id = Array.isArray(intradayRes.value) ? intradayRes.value : [];

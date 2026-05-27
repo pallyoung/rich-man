@@ -1,0 +1,27 @@
+{
+  "name": "richman",
+  "version": "1.0.0",
+  "description": "面向个人投资者的A股量化分析工具，集行情分析、技术指标、趋势识别、策略回测和财经资讯于一体。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pallyoung/rich-man.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/pallyoung/rich-man/issues"
+  },
+  "homepage": "https://github.com/pallyoung/rich-man#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
+  }
+}
