@@ -32,20 +32,28 @@ fi
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Setup Python virtual environment
+VENV_DIR="$PROJECT_DIR/backend/venv"
+if [ ! -d "$VENV_DIR" ]; then
+    echo -e "${BLUE}[1/4] Creating Python virtual environment...${NC}"
+    python3 -m venv "$VENV_DIR"
+fi
+source "$VENV_DIR/bin/activate"
+
 # Install backend dependencies
-echo -e "${BLUE}[1/4] Installing backend dependencies...${NC}"
+echo -e "${BLUE}[2/4] Installing backend dependencies...${NC}"
 cd "$PROJECT_DIR/backend"
-pip install -r requirements.txt -q 2>/dev/null || pip3 install -r requirements.txt -q
+pip install -r requirements.txt -q
 
 # Install frontend dependencies
-echo -e "${BLUE}[2/4] Installing frontend dependencies...${NC}"
+echo -e "${BLUE}[3/4] Installing frontend dependencies...${NC}"
 cd "$PROJECT_DIR/frontend"
 npm install --silent 2>/dev/null || npm install
 
 # Start backend
-echo -e "${BLUE}[3/4] Starting backend server (port 5000)...${NC}"
+echo -e "${BLUE}[4/4] Starting backend server (port 5000)...${NC}"
 cd "$PROJECT_DIR/backend"
-python3 app.py &
+python app.py &
 BACKEND_PID=$!
 
 # Wait for backend to be ready
