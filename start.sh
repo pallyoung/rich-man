@@ -6,6 +6,7 @@ set -e
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
+YELLOW='\033[0;33m'
 NC='\033[0m'
 
 echo -e "${BLUE}"
@@ -36,7 +37,13 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$PROJECT_DIR/backend/venv"
 if [ ! -d "$VENV_DIR" ]; then
     echo -e "${BLUE}[1/4] Creating Python virtual environment...${NC}"
-    python3 -m venv "$VENV_DIR"
+    # Ensure python3-venv is installed (required on Debian/Ubuntu)
+    if ! python3 -m venv "$VENV_DIR" 2>/dev/null; then
+        echo -e "${YELLOW}[INFO] Installing python3-venv...${NC}"
+        sudo apt-get update -qq && sudo apt-get install -y -qq python3-venv 2>/dev/null || \
+        sudo apt install -y -qq python3.12-venv 2>/dev/null || true
+        python3 -m venv "$VENV_DIR"
+    fi
 fi
 source "$VENV_DIR/bin/activate"
 
