@@ -222,60 +222,6 @@ def stock_ranking():
         return _success(result)
 
 
-@market_bp.route('/api/market/sectors', methods=['GET'])
-def sector_data():
-    """Get industry sector data with average change percentage."""
-    cache_key = 'market_sectors'
-    cached = get_cached(cache_key, max_age_seconds=120)
-    if cached is not None:
-        return _success(cached)
-
-    try:
-        import akshare as ak
-        df = ak.stock_board_industry_name_em()
-
-        col_map = {
-            '板块名称': 'name',
-            '板块代码': 'code',
-            '最新价': 'price',
-            '涨跌幅': 'change_pct',
-            '涨跌额': 'change',
-            '总市值': 'market_cap',
-            '换手率': 'turnover_rate',
-            '上涨家数': 'up_count',
-            '下跌家数': 'down_count',
-            '领涨股票': 'leading_stock',
-            '领涨涨跌幅': 'leading_change_pct',
-        }
-
-        available_cols = {k: v for k, v in col_map.items() if k in df.columns}
-        df = df.rename(columns=available_cols)
-        df = df.sort_values('change_pct', ascending=False, na_position='last')
-
-        sectors = []
-        for _, row in df.iterrows():
-            sector = {
-                'code': str(row.get('code', '')),
-                'name': str(row.get('name', '')),
-                'change_pct': _safe_float(row.get('change_pct')),
-                'market_cap': _safe_float(row.get('market_cap')),
-                'turnover_rate': _safe_float(row.get('turnover_rate')),
-                'up_count': int(_safe_float(row.get('up_count', 0))),
-                'down_count': int(_safe_float(row.get('down_count', 0))),
-                'leading_stock': str(row.get('leading_stock', '')),
-                'leading_change_pct': _safe_float(row.get('leading_change_pct')),
-            }
-            sectors.append(sector)
-
-        set_cached(cache_key, sectors, ttl_seconds=120)
-        return _success(sectors)
-
-    except Exception as e:
-        logger.warning("Failed to fetch sector data: %s", e)
-        from services.mock_data import generate_sectors
-        sectors = generate_sectors()
-        set_cached(cache_key, sectors, ttl_seconds=120)
-        return _success(sectors)
 
 
 @market_bp.route('/api/market/limit-up', methods=['GET'])
@@ -365,3 +311,183 @@ def _safe_float(value, default=0.0):
         return round(result, 2)
     except (ValueError, TypeError):
         return default
+
+
+@market_bp.route('/api/market/updown_stats', methods=['GET'])
+def market_updown_stats():
+    """Get market up/down/flat stock counts and sentiment."""
+    cache_key = 'market_updown_stats'
+    cached = get_cached(cache_key, max_age_seconds=60)
+    if cached is not None:
+        return _success(cached)
+
+    try:
+        import akshare as ak
+        df = ak.stock_zh_a_spot_em()
+        if df is not None and not df.empty:
+            col = '涨跌幅'
+            if col in df.columns:
+                values = pd.to_numeric(df[col], errors='coerce').dropna()
+                up_count = int((values > 0).sum())
+                down_count = int((values < 0).sum())
+                flat_count = int((values == 0).sum())
+            else:
+                up_count = down_count = flat_count = 0
+
+            # Simple sentiment: based on up/down ratio
+            total = up_count + down_count + flat_count
+            if total > 0:
+                sentiment = round((up_count / total) * 100, 1)
+            else:
+                sentiment = 50.0
+
+            result = {
+                'up_count': up_count,
+                'down_count': down_count,
+                'flat_count': flat_count,
+                'sentiment': sentiment,
+            }
+            set_cached(cache_key, result, ttl_seconds=60)
+            return _success(result)
+    except Exception as e:
+        logger.warning("Failed to fetch updown stats: %s, using mock", e)
+
+    import random
+    random.seed(42)
+    result = {
+        'up_count': random.randint(1500, 3000),
+        'down_count': random.randint(1000, 2500),
+        'flat_count': random.randint(100, 500),
+        'sentiment': round(random.uniform(40, 65), 1),
+    }
+    set_cached(cache_key, result, ttl_seconds=60)
+    return _success(result)
+
+
+@market_bp.route('/api/market/sectors', methods=['GET'])
+def market_sectors():
+    """Get sector data (alias for sector heatmap)."""
+    cache_key = 'market_sectors'
+    cached = get_cached(cache_key, max_age_seconds=120)
+    if cached is not None:
+        return _success(cached)
+
+    try:
+        import akshare as ak
+        df = ak.stock_board_industry_name_em()
+
+        if df is None or df.empty:
+            from services.mock_data import generate_sectors
+            sectors = generate_sectors()
+            set_cached(cache_key, sectors, ttl_seconds=120)
+            return _success(sectors)
+
+        col_map = {
+            '板块名称': 'name',
+            '板块代码': 'code',
+            '涨跌幅': 'change_pct',
+            '总市值': 'market_cap',
+            '换手率': 'turnover_rate',
+            '上涨家数': 'up_count',
+            '下跌家数': 'down_count',
+            '领涨股票': 'leading_stock',
+            '领涨涨跌幅': 'leading_change_pct',
+        }
+
+        available_cols = {k: v for k, v in col_map.items() if k in df.columns}
+        df = df.rename(columns=available_cols)
+        df = df.sort_values('change_pct', ascending=False, na_position='last')
+
+        sectors = []
+        for _, row in df.iterrows():
+            sector = {
+                'code': str(row.get('code', '')),
+                'name': str(row.get('name', '')),
+                'change_pct': _safe_float(row.get('change_pct')),
+                'market_cap': _safe_float(row.get('market_cap')),
+                'turnover_rate': _safe_float(row.get('turnover_rate')),
+                'up_count': int(_safe_float(row.get('up_count', 0))),
+                'down_count': int(_safe_float(row.get('down_count', 0))),
+                'leading_stock': str(row.get('leading_stock', '')),
+                'leading_change_pct': _safe_float(row.get('leading_change_pct')),
+            }
+            sectors.append(sector)
+
+        set_cached(cache_key, sectors, ttl_seconds=120)
+        return _success(sectors)
+
+    except Exception as e:
+        logger.warning("Failed to fetch sector data: %s", e)
+        from services.mock_data import generate_sectors
+        sectors = generate_sectors()
+        set_cached(cache_key, sectors, ttl_seconds=120)
+        return _success(sectors)
+
+
+@market_bp.route('/api/market/hot', methods=['GET'])
+def dragon_tiger_list():
+    """Get Dragon Tiger list (龙虎榜) data.
+
+    Returns stocks with unusual trading activity reported
+    by the exchange, including institutional and hot money movements.
+    """
+    cache_key = 'market_dragon_tiger'
+    cached = get_cached(cache_key, max_age_seconds=120)
+    if cached is not None:
+        return _success(cached)
+
+    try:
+        import akshare as ak
+        today = datetime.now().strftime('%Y%m%d')
+        df = ak.stock_lhb_detail_em(start_date=today, end_date=today)
+
+        if df is not None and not df.empty:
+            col_map = {
+                '代码': 'code',
+                '名称': 'name',
+                '收盘价': 'price',
+                '涨跌幅': 'change_pct',
+                '龙虎榜净买额': 'net_buy',
+                '龙虎榜买入额': 'buy_amount',
+                '龙虎榜卖出额': 'sell_amount',
+                '上榜原因': 'reason',
+            }
+            available_cols = {k: v for k, v in col_map.items() if k in df.columns}
+            df = df.rename(columns=available_cols)
+
+            stocks = []
+            for _, row in df.iterrows():
+                stocks.append({
+                    'code': str(row.get('code', '')),
+                    'name': str(row.get('name', '')),
+                    'price': _safe_float(row.get('price')),
+                    'change_pct': _safe_float(row.get('change_pct')),
+                    'net_buy': _safe_float(row.get('net_buy')),
+                    'buy_amount': _safe_float(row.get('buy_amount')),
+                    'sell_amount': _safe_float(row.get('sell_amount')),
+                    'reason': str(row.get('reason', '')),
+                })
+
+            set_cached(cache_key, stocks, ttl_seconds=120)
+            return _success(stocks)
+    except Exception as e:
+        logger.warning("Failed to fetch Dragon Tiger list: %s, using mock", e)
+
+    # Mock Dragon Tiger data
+    import random
+    from services.mock_data import MOCK_STOCKS
+    random.seed(42)
+    mock_data = []
+    for s in random.sample(MOCK_STOCKS, min(10, len(MOCK_STOCKS))):
+        mock_data.append({
+            'code': s['code'],
+            'name': s['name'],
+            'price': round(s['base'] * random.uniform(0.95, 1.05), 2),
+            'change_pct': round(random.uniform(-5, 10), 2),
+            'net_buy': round(random.uniform(-5e8, 2e9), 2),
+            'buy_amount': round(random.uniform(1e8, 3e9), 2),
+            'sell_amount': round(random.uniform(1e8, 3e9), 2),
+            'reason': random.choice(['日涨幅偏离值达7%', '日换手率达20%', '日振幅值达15%']),
+        })
+    set_cached(cache_key, mock_data, ttl_seconds=120)
+    return _success(mock_data)

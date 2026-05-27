@@ -21,12 +21,21 @@ export default function Dashboard({ isDark }) {
   async function fetchData() {
     setLoading(true);
     try {
-      const [ovRes, secRes, sigRes] = await Promise.allSettled([
+      const [ovRes, secRes, sigRes, udRes] = await Promise.allSettled([
         api.get('/market/overview'),
         api.get('/market/sectors'),
         api.get('/trend/signals'),
+        api.get('/market/updown_stats'),
       ]);
-      if (ovRes.status === 'fulfilled') setOverview(ovRes.value);
+      if (ovRes.status === 'fulfilled') {
+        const indices = Array.isArray(ovRes.value) ? ovRes.value : [];
+        // Merge updown stats into overview
+        let updown = {};
+        if (udRes.status === 'fulfilled' && udRes.value) {
+          updown = udRes.value;
+        }
+        setOverview({ indices, ...updown });
+      }
       if (secRes.status === 'fulfilled') {
         const sd = Array.isArray(secRes.value) ? secRes.value : [];
         setSectors(sd.slice(0, 10));

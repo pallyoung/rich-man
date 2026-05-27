@@ -456,3 +456,111 @@ def stock_fundamental(code):
         result = generate_fundamental(code)
         set_cached(cache_key, result, ttl_seconds=600)
         return _success(result)
+
+
+@stock_bp.route('/api/stock/search', methods=['GET'])
+def stock_search():
+    """Search stocks by code or name.
+
+    Query params:
+        keyword: Search keyword (code or name).
+
+    Returns:
+        List of matching stocks with code and name.
+    """
+    keyword = request.args.get('keyword', '').strip()
+    if not keyword:
+        return _success([])
+
+    cache_key = f'stock_search_{keyword}'
+    cached = get_cached(cache_key, max_age_seconds=3600)
+    if cached is not None:
+        return _success(cached)
+
+    try:
+        import akshare as ak
+        df = ak.stock_zh_a_spot_em()
+        if df is not None and not df.empty:
+            col_map = {'代码': 'code', '名称': 'name'}
+            available_cols = {k: v for k, v in col_map.items() if k in df.columns}
+            df = df.rename(columns=available_cols)
+            mask = (
+                df['code'].astype(str).str.contains(keyword, case=False, na=False) |
+                df['name'].astype(str).str.contains(keyword, case=False, na=False)
+            )
+            results = df[mask].head(20)
+            items = [
+                {'code': str(row['code']), 'name': str(row['name'])}
+                for _, row in results.iterrows()
+            ]
+            set_cached(cache_key, items, ttl_seconds=3600)
+            return _success(items)
+    except Exception as e:
+        logger.warning("Stock search failed for '%s': %s, using mock", keyword, e)
+
+    # Fallback: search mock data
+    from services.mock_data import MOCK_STOCKS
+    items = [
+        {'code': s['code'], 'name': s['name']}
+        for s in MOCK_STOCKS
+        if keyword in s['code'] or keyword in s['name']
+    ]
+    set_cached(cache_key, items, ttl_seconds=3600)
+    return _success(items)
+
+
+@stock_bp.route('/api/stock/<code>/intraday', methods=['GET'])
+def intraday_data(code):
+    """Get intraday (minute-level) data for a stock.
+
+    Returns list of {time, price, volume} for today.
+    """
+    code = normalize_stock_code(code)
+    cache_key = f'stock_intraday_{code}'
+    cached = get_cached(cache_key, max_age_seconds=30)
+    if cached is not None:
+        return _success(cached)
+
+    try:
+        import akshare as ak
+        df = ak.stock_zh_a_hist_min_em(symbol=code, period='1', adjust='')
+        if df is not None and not df.empty:
+            col_map = {'时间': 'time', '最新价': 'price', '成交量': 'volume'}
+            available_cols = {k: v for k, v in col_map.items() if k in df.columns}
+            df = df.rename(columns=available_cols)
+            data = []
+            for _, row in df.iterrows():
+                data.append({
+                    'time': str(row.get('time', '')),
+                    'price': _safe_float(row.get('price')),
+                    'volume': _safe_float(row.get('volume')),
+                })
+            set_cached(cache_key, data, ttl_seconds=30)
+            return _success(data)
+    except Exception as e:
+        logger.warning("Intraday data failed for %s: %s, using mock", code, e)
+
+    # Generate mock intraday data
+    import random
+    random.seed(hash(code))
+    from services.mock_data import generate_kline
+    mock_kline = generate_kline(code, days=1)
+    base = mock_kline[0]['close'] if mock_kline else 50.0
+    price = base
+    intraday = []
+    for h in range(9, 16):
+        for m in range(0, 60, 5):
+            if h == 11 and m >= 30:
+                continue
+            if h == 12:
+                continue
+            if h == 15 and m > 0:
+                continue
+            price = price * (1 + random.gauss(0, 0.002))
+            intraday.append({
+                'time': f'{h:02d}:{m:02d}',
+                'price': round(price, 2),
+                'volume': int(random.uniform(10000, 200000)),
+            })
+    set_cached(cache_key, intraday, ttl_seconds=30)
+    return _success(intraday)

@@ -44,8 +44,10 @@ export default function NewsCenter({ isDark }) {
       const res = await api.get('/news/sentiment');
       if (res) {
         setSentiment({
-          score: res.score ?? res.sentiment ?? 50,
-          keywords: res.keywords || [],
+          score: res.sentiment_index ?? res.score ?? res.sentiment ?? 50,
+          keywords: res.news_sentiments
+            ? res.news_sentiments.map(n => n.title).slice(0, 8)
+            : res.keywords || [],
         });
       }
     } catch {

@@ -18,12 +18,14 @@ const strategies = [
   { value: 'dual_ma', label: '双均线策略' },
   { value: 'macd', label: 'MACD策略' },
   { value: 'momentum', label: '动量策略' },
+  { value: 'turtle', label: '海龟交易策略' },
 ];
 
 const strategyDescs = {
   dual_ma: '双均线策略通过短期均线和长期均线的交叉来产生交易信号。当短期均线上穿长期均线时买入，下穿时卖出。',
   macd: 'MACD策略利用MACD指标的金叉和死叉作为买卖信号，结合MACD柱状图判断趋势强度。',
   momentum: '动量策略基于股票价格的动量变化，当动量由负转正时买入，由正转负时卖出。',
+  turtle: '海龟交易策略是经典的趋势跟踪系统，当价格突破N日最高价时入场，跌破M日最低价时离场。',
 };
 
 export default function QuantStrategy({ isDark }) {

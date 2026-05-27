@@ -76,10 +76,11 @@ def _fetch_eastmoney_news(page: int = 1, page_size: int = 20) -> list:
 
         resp = requests.get(url, params=params, headers=headers, timeout=10)
         resp.raise_for_status()
-        data = resp.json()
+        data = resp.json() if resp.text else {}
 
         news_list = []
-        items = data.get('data', {}).get('list', [])
+        data_obj = data.get('data') if isinstance(data.get('data'), dict) else {}
+        items = data_obj.get('list', []) if data_obj else []
         for item in items:
             news = {
                 'title': item.get('title', ''),
@@ -143,130 +144,47 @@ def _get_mock_news() -> list:
             'publish_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'image_url': '',
         },
+        {
+            'title': '半导体行业景气度持续回升 设备厂商订单饱满',
+            'summary': '受益于国产替代加速和下游需求回暖，半导体行业景气度持续回升，多家设备厂商订单排至明年。',
+            'url': 'https://finance.eastmoney.com',
+            'source': '第一财经',
+            'publish_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'image_url': '',
+        },
+        {
+            'title': '券商板块集体走强 机构看好资本市场改革红利',
+            'summary': '受资本市场改革政策利好影响，券商板块今日集体走强，多家机构看好行业长期发展前景。',
+            'url': 'https://finance.eastmoney.com',
+            'source': '证券日报',
+            'publish_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'image_url': '',
+        },
+        {
+            'title': '光伏产业链价格企稳 行业有望迎来拐点',
+            'summary': '经过持续调整后，光伏产业链各环节价格逐步企稳，行业有望在下半年迎来基本面拐点。',
+            'url': 'https://finance.eastmoney.com',
+            'source': '财联社',
+            'publish_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'image_url': '',
+        },
+        {
+            'title': '人工智能应用加速落地 相关概念股持续活跃',
+            'summary': '随着AI技术在各行业的应用加速落地，人工智能概念股近期持续活跃，市场关注度居高不下。',
+            'url': 'https://finance.eastmoney.com',
+            'source': '东方财富',
+            'publish_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'image_url': '',
+        },
+        {
+            'title': '消费板块估值修复 龙头公司获资金青睐',
+            'summary': '随着消费数据逐步改善，消费板块估值修复预期增强，多家龙头公司获北向资金大幅增持。',
+            'url': 'https://finance.eastmoney.com',
+            'source': '中国基金报',
+            'publish_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'image_url': '',
+        },
     ]
-
-
-@news_bp.route('/api/news/latest', methods=['GET'])
-def latest_news():
-    """Get latest financial news.
-
-    Query params:
-        page: Page number (default 1)
-        page_size: Items per page (default 20)
-    """
-    page = int(request.args.get('page', 1))
-    page_size = int(request.args.get('page_size', 20))
-
-    cache_key = f'news_latest_{page}_{page_size}'
-    cached = get_cached(cache_key, max_age_seconds=120)
-    if cached is not None:
-        return _success(cached)
-
-    # Try to fetch real news
-    news = _fetch_eastmoney_news(page, page_size)
-
-    if not news:
-        # Fallback to mock data
-        news = _get_mock_news()
-
-    result = {
-        'page': page,
-        'page_size': page_size,
-        'news': news,
-    }
-
-    set_cached(cache_key, result, ttl_seconds=120)
-    return _success(result)
-
-
-@news_bp.route('/api/news/stock/<code>', methods=['GET'])
-def stock_news(code):
-    """Get stock-specific news.
-
-    Path params:
-        code: Stock code
-    """
-    code = normalize_stock_code(code)
-
-    cache_key = f'news_stock_{code}'
-    cached = get_cached(cache_key, max_age_seconds=120)
-    if cached is not None:
-        return _success(cached)
-
-    try:
-        # Try East Money stock news API
-        url = "https://search-api-web.eastmoney.com/search/jsonp"
-        params = {
-            'cb': 'jQuery',
-            'param': (
-                '{"uid":"","keyword":"' + code + '","type":["cmsArticleWebOld"],'
-                '"client":"web","clientType":"web","clientVersion":"curr",'
-                '"param":{"cmsArticleWebOld":{"searchScope":"default",'
-                '"sort":"default","pageIndex":1,"pageSize":20,"preTag":"",'
-                '"postTag":""}}}'
-            ),
-        }
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                          'AppleWebKit/537.36 (KHTML, like Gecko) '
-                          'Chrome/120.0.0.0 Safari/537.36',
-            'Referer': 'https://so.eastmoney.com/',
-        }
-
-        resp = requests.get(url, params=params, headers=headers, timeout=10)
-        resp.raise_for_status()
-
-        # Parse JSONP response
-        text = resp.text
-        json_str = text[text.index('(') + 1:text.rindex(')')]
-        import json
-        data = json.loads(json_str)
-
-        news_list = []
-        articles = data.get('result', {}).get('cmsArticleWebOld', {}).get('list', [])
-        for item in articles:
-            title = item.get('title', '')
-            # Clean HTML tags
-            title = re.sub(r'<[^>]+>', '', title)
-            content = item.get('content', item.get('date', ''))
-            content = re.sub(r'<[^>]+>', '', str(content))[:200]
-
-            news_list.append({
-                'title': title,
-                'summary': content,
-                'url': item.get('url', ''),
-                'source': item.get('mediaName', ''),
-                'publish_time': item.get('date', ''),
-            })
-
-        if not news_list:
-            news_list = [
-                {
-                    'title': f'{code}相关资讯暂无数据',
-                    'summary': '暂时没有找到该股票的相关新闻资讯，请稍后重试。',
-                    'url': '',
-                    'source': '系统提示',
-                    'publish_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                },
-            ]
-
-        set_cached(cache_key, news_list, ttl_seconds=120)
-        return _success(news_list)
-
-    except Exception as e:
-        logger.warning("Failed to fetch stock news for %s: %s", code, e)
-        # Return fallback
-        fallback = [
-            {
-                'title': f'{code}相关资讯获取失败',
-                'summary': '新闻数据暂时无法获取，请稍后重试。',
-                'url': '',
-                'source': '系统提示',
-                'publish_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            },
-        ]
-        set_cached(cache_key, fallback, ttl_seconds=120)
-        return _success(fallback)
 
 
 @news_bp.route('/api/news/sentiment', methods=['GET'])
@@ -359,3 +277,142 @@ def market_sentiment():
 
     set_cached(cache_key, result, ttl_seconds=300)
     return _success(result)
+
+
+@news_bp.route('/api/news/latest', methods=['GET'])
+def latest_news():
+    """Get latest financial news.
+
+    Query params:
+        limit: Number of items (default 20).
+    """
+    limit = int(request.args.get('limit', 20))
+    cache_key = f'news_latest_{limit}'
+    cached = get_cached(cache_key, max_age_seconds=120)
+    if cached is not None:
+        return _success(cached)
+
+    news_items = _fetch_eastmoney_news(page=1, page_size=limit)
+    if not news_items:
+        news_items = _get_mock_news()
+        # Expand mock news to fill limit
+        while len(news_items) < limit:
+            for item in _get_mock_news():
+                if len(news_items) >= limit:
+                    break
+                news_items.append(item)
+
+    set_cached(cache_key, news_items[:limit], ttl_seconds=120)
+    return _success(news_items[:limit])
+
+
+@news_bp.route('/api/news/stock/<code>', methods=['GET'])
+def stock_news(code):
+    """Get news for a specific stock.
+
+    Path params:
+        code: Stock code.
+    """
+    code = normalize_stock_code(code)
+    cache_key = f'news_stock_{code}'
+    cached = get_cached(cache_key, max_age_seconds=120)
+    if cached is not None:
+        return _success(cached)
+
+    try:
+        import akshare as ak
+        df = ak.stock_news_em(symbol=code)
+        if df is not None and not df.empty:
+            news_list = []
+            for _, row in df.head(20).iterrows():
+                title = str(row.get('新闻标题', ''))
+                content = str(row.get('新闻内容', ''))[:200]
+                news_list.append({
+                    'title': re.sub(r'<[^>]+>', '', title),
+                    'summary': re.sub(r'<[^>]+>', '', content),
+                    'url': str(row.get('新闻链接', '')),
+                    'source': str(row.get('文章来源', '')),
+                    'publish_time': str(row.get('发布时间', '')),
+                })
+            set_cached(cache_key, news_list, ttl_seconds=120)
+            return _success(news_list)
+    except Exception as e:
+        logger.warning("Failed to fetch stock news for %s: %s", code, e)
+
+    fallback = [
+        {
+            'title': f'{code} 相关资讯获取中',
+            'summary': '新闻数据暂时无法获取，请稍后重试。',
+            'url': '',
+            'source': '系统提示',
+            'publish_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        },
+    ]
+    set_cached(cache_key, fallback, ttl_seconds=120)
+    return _success(fallback)
+
+
+@news_bp.route('/api/news/announcements', methods=['GET'])
+def stock_announcements():
+    """Get announcements for a specific stock.
+
+    Query params:
+        stock_code: Stock code (required).
+    """
+    stock_code = request.args.get('stock_code', '').strip()
+    if not stock_code:
+        return _error("stock_code parameter is required")
+
+    stock_code = normalize_stock_code(stock_code)
+    cache_key = f'news_announcements_{stock_code}'
+    cached = get_cached(cache_key, max_age_seconds=300)
+    if cached is not None:
+        return _success(cached)
+
+    try:
+        import akshare as ak
+        # Try different akshare functions for announcements
+        df = None
+        try:
+            df = ak.stock_notice_report(symbol=stock_code)
+        except Exception:
+            pass
+        if df is not None and not df.empty:
+            announcements = []
+            for _, row in df.head(20).iterrows():
+                title = str(row.get('标题', row.get('公告标题', row.iloc[0] if len(row) > 0 else '')))
+                date = str(row.get('日期', row.get('公告日期', row.iloc[1] if len(row) > 1 else '')))
+                announcements.append({
+                    'title': title,
+                    'date': date,
+                    'type': str(row.get('类型', '公告')),
+                    'url': str(row.get('链接', '')),
+                })
+            set_cached(cache_key, announcements, ttl_seconds=300)
+            return _success(announcements)
+    except Exception as e:
+        logger.warning("Failed to fetch announcements for %s: %s", stock_code, e)
+
+    # Mock fallback
+    fallback = [
+        {
+            'title': f'{stock_code} 2025年年度报告',
+            'date': '2025-04-28',
+            'type': '定期报告',
+            'url': '',
+        },
+        {
+            'title': f'{stock_code} 关于回购股份的公告',
+            'date': '2025-03-15',
+            'type': '临时公告',
+            'url': '',
+        },
+        {
+            'title': f'{stock_code} 第三季度报告',
+            'date': '2024-10-29',
+            'type': '定期报告',
+            'url': '',
+        },
+    ]
+    set_cached(cache_key, fallback, ttl_seconds=300)
+    return _success(fallback)

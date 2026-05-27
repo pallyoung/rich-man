@@ -84,7 +84,7 @@ function getSectorColor(change) {
   if (change >= 5) return '#c22538';
   if (change >= 3) return '#e84040';
   if (change >= 1) return '#f85149';
-  if (change > -1) return '#444c56';
+  if (change > -1) return '#6e7681';
   if (change > -3) return '#3fb950';
   if (change > -5) return '#2ea043';
   return '#1a7f37';

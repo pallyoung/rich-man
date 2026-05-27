@@ -46,6 +46,7 @@ class BacktestEngine:
             'dual_ma': dual_ma_strategy,
             'macd': macd_strategy,
             'momentum': momentum_strategy,
+            'turtle': turtle_strategy,
         }
 
     def run(self, df: pd.DataFrame, strategy: str,
@@ -327,6 +328,41 @@ def momentum_strategy(df: pd.DataFrame, lookback: int = 20,
         if ret > threshold:
             signals.iloc[i] = 1
         elif ret < -threshold:
+            signals.iloc[i] = -1
+
+    return signals
+
+
+def turtle_strategy(df: pd.DataFrame, entry_period: int = 20,
+                    exit_period: int = 10) -> pd.Series:
+    """Turtle trading strategy.
+
+    Buy when price breaks above N-day high (Donchian channel breakout).
+    Sell when price breaks below M-day low.
+
+    Args:
+        df: DataFrame with 'high', 'low', 'close' columns.
+        entry_period: Lookback period for entry signal (default 20).
+        exit_period: Lookback period for exit signal (default 10).
+
+    Returns:
+        Series of signals: 1 (buy), -1 (sell), 0 (hold).
+    """
+    signals = pd.Series(0, index=df.index)
+
+    # Calculate Donchian channels
+    upper_channel = df['high'].rolling(window=entry_period, min_periods=1).max()
+    lower_channel = df['low'].rolling(window=exit_period, min_periods=1).min()
+
+    for i in range(1, len(df)):
+        if pd.isna(upper_channel.iloc[i - 1]) or pd.isna(lower_channel.iloc[i - 1]):
+            continue
+
+        # Buy: close breaks above 20-day high
+        if df['close'].iloc[i] > upper_channel.iloc[i - 1]:
+            signals.iloc[i] = 1
+        # Sell: close breaks below 10-day low
+        elif df['close'].iloc[i] < lower_channel.iloc[i - 1]:
             signals.iloc[i] = -1
 
     return signals

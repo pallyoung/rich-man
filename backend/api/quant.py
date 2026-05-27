@@ -55,6 +55,16 @@ STRATEGIES = [
             'threshold': {'default': 0.03, 'description': '收益率阈值'},
         },
     },
+    {
+        'id': 'turtle',
+        'name': '海龟交易策略',
+        'name_en': 'Turtle Trading',
+        'description': '价格突破N日最高价时买入，跌破M日最低价时卖出。经典趋势跟踪策略。',
+        'params': {
+            'entry_period': {'default': 20, 'description': '入场突破周期'},
+            'exit_period': {'default': 10, 'description': '出场突破周期'},
+        },
+    },
 ]
 
 
@@ -136,107 +146,6 @@ def list_strategies():
     """List available quantitative strategies."""
     return _success(STRATEGIES)
 
-
-@quant_bp.route('/api/quant/backtest', methods=['POST'])
-def run_backtest():
-    """Run a backtest with the specified parameters.
-
-    JSON body:
-        code: Stock code (required)
-        strategy: Strategy name (required) - 'dual_ma', 'macd', 'momentum'
-        start_date: Start date in YYYYMMDD (required)
-        end_date: End date in YYYYMMDD (required)
-        initial_capital: Starting capital (default 100000)
-        commission_rate: Commission rate (default 0.0003)
-
-    Returns:
-        Equity curve, trades, and performance metrics.
-    """
-    data = request.get_json()
-    if not data:
-        return _error("Request body must be JSON")
-
-    code = data.get('code')
-    strategy = data.get('strategy')
-    start_date = data.get('start_date')
-    end_date = data.get('end_date')
-    initial_capital = float(data.get('initial_capital', 100000))
-    commission_rate = float(data.get('commission_rate', 0.0003))
-
-    if not code:
-        return _error("Missing required parameter: code")
-    if not strategy:
-        return _error("Missing required parameter: strategy")
-    if not start_date:
-        return _error("Missing required parameter: start_date")
-    if not end_date:
-        return _error("Missing required parameter: end_date")
-
-    code = normalize_stock_code(code)
-
-    # Validate strategy
-    valid_strategies = [s['id'] for s in STRATEGIES]
-    if strategy not in valid_strategies:
-        return _error(
-            f"Unknown strategy '{strategy}'. Available: {valid_strategies}"
-        )
-
-    # Validate dates (accept both YYYYMMDD and YYYY-MM-DD)
-    try:
-        for fmt in ('%Y%m%d', '%Y-%m-%d'):
-            try:
-                start_date = datetime.strptime(start_date, fmt).strftime('%Y%m%d')
-                break
-            except ValueError:
-                continue
-        else:
-            return _error("Invalid start_date format. Use YYYYMMDD or YYYY-MM-DD.")
-        for fmt in ('%Y%m%d', '%Y-%m-%d'):
-            try:
-                end_date = datetime.strptime(end_date, fmt).strftime('%Y%m%d')
-                break
-            except ValueError:
-                continue
-        else:
-            return _error("Invalid end_date format. Use YYYYMMDD or YYYY-MM-DD.")
-    except Exception:
-        return _error("Invalid date format.")
-
-    try:
-        df = _fetch_stock_data(code, start_date, end_date)
-        if df.empty:
-            return _error(f"No data available for stock {code} in the given date range")
-
-        result = backtest_engine.run(
-            df=df,
-            strategy=strategy,
-            initial_capital=initial_capital,
-            commission=commission_rate,
-        )
-
-        # Convert result to dict
-        result_dict = {
-            'code': code,
-            'strategy': strategy,
-            'start_date': start_date,
-            'end_date': end_date,
-            'initial_capital': result.initial_capital,
-            'final_capital': result.final_capital,
-            'total_return': result.total_return,
-            'annual_return': result.annual_return,
-            'max_drawdown': result.max_drawdown,
-            'sharpe_ratio': result.sharpe_ratio,
-            'win_rate': result.win_rate,
-            'total_trades': result.total_trades,
-            'equity_curve': result.equity_curve,
-            'trades': result.trades,
-        }
-
-        return _success(result_dict)
-
-    except Exception as e:
-        logger.error("Backtest failed for %s with strategy %s: %s", code, strategy, e)
-        return _error(f"Backtest failed: {str(e)}")
 
 
 # Sample stock pool for factor selection
@@ -452,3 +361,83 @@ def _score_stocks(stocks: list, factors: list) -> list:
         stock['total_score'] = round(float(total_score), 4)
 
     return stocks
+
+
+@quant_bp.route('/api/quant/backtest', methods=['POST'])
+def run_backtest():
+    """Run a backtest with the specified parameters.
+
+    Accepts both old and new param naming conventions.
+
+    JSON body:
+        code or stock_code: Stock code (required)
+        strategy: Strategy name (required)
+        start_date: Start date (required, YYYY-MM-DD or YYYYMMDD)
+        end_date: End date (required, YYYY-MM-DD or YYYYMMDD)
+        initial_capital or initial_capital: Starting capital (default 100000)
+        commission_rate or commission: Commission rate (default 0.0003)
+    """
+    data = request.get_json()
+    if not data:
+        return _error("Request body must be JSON")
+
+    code = data.get('code') or data.get('stock_code')
+    strategy = data.get('strategy')
+    start_date = data.get('start_date', '')
+    end_date = data.get('end_date', '')
+    initial_capital = float(data.get('initial_capital', 100000))
+    commission = float(data.get('commission_rate', data.get('commission', 0.0003)))
+
+    if not code:
+        return _error("Stock code is required (code or stock_code)")
+    if not strategy:
+        return _error("Strategy is required")
+    if strategy not in backtest_engine.strategies:
+        return _error(f"Unknown strategy '{strategy}'. Available: {list(backtest_engine.strategies.keys())}")
+    if not start_date or not end_date:
+        return _error("start_date and end_date are required")
+
+    code = normalize_stock_code(code)
+
+    # Normalize date format to YYYYMMDD
+    start_date = start_date.replace('-', '')
+    end_date = end_date.replace('-', '')
+
+    cache_key = f'quant_backtest_{code}_{strategy}_{start_date}_{end_date}_{initial_capital}'
+    cached = get_cached(cache_key, max_age_seconds=300)
+    if cached is not None:
+        return _success(cached)
+
+    try:
+        df = _fetch_stock_data(code, start_date, end_date)
+        if df.empty:
+            return _error(f"No data found for stock {code}")
+
+        result = backtest_engine.run(
+            df, strategy,
+            initial_capital=initial_capital,
+            commission=commission,
+        )
+
+        from dataclasses import asdict
+        result_dict = {
+            'equity_curve': result.equity_curve,
+            'trades': result.trades,
+            'metrics': {
+                'total_return': round(result.total_return * 100, 2),
+                'annual_return': round(result.annual_return * 100, 2),
+                'max_drawdown': round(result.max_drawdown * 100, 2),
+                'sharpe_ratio': round(result.sharpe_ratio, 2),
+                'win_rate': round(result.win_rate * 100, 2),
+                'total_trades': result.total_trades,
+                'initial_capital': result.initial_capital,
+                'final_capital': result.final_capital,
+            },
+        }
+
+        set_cached(cache_key, result_dict, ttl_seconds=300)
+        return _success(result_dict)
+
+    except Exception as e:
+        logger.warning("Backtest failed for %s: %s", code, e)
+        return _error(f"Backtest failed: {str(e)}")

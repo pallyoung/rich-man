@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Layout, Menu, Switch, Space, Typography } from 'antd';
+import React, { useState, useMemo, Suspense, lazy } from 'react';
+import { Layout, Menu, Switch, Space, Typography, Spin } from 'antd';
 import {
   DashboardOutlined,
   BarChartOutlined,
@@ -10,12 +10,14 @@ import {
   BulbOutlined,
 } from '@ant-design/icons';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
-import Dashboard from './pages/Dashboard';
-import MarketCenter from './pages/MarketCenter';
-import StockAnalysis from './pages/StockAnalysis';
-import TrendAnalysis from './pages/TrendAnalysis';
-import QuantStrategy from './pages/QuantStrategy';
-import NewsCenter from './pages/NewsCenter';
+
+// Lazy load pages for code-splitting
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const MarketCenter = lazy(() => import('./pages/MarketCenter'));
+const StockAnalysis = lazy(() => import('./pages/StockAnalysis'));
+const TrendAnalysis = lazy(() => import('./pages/TrendAnalysis'));
+const QuantStrategy = lazy(() => import('./pages/QuantStrategy'));
+const NewsCenter = lazy(() => import('./pages/NewsCenter'));
 
 const { Sider, Header, Content } = Layout;
 const { Text } = Typography;
@@ -127,15 +129,17 @@ export default function App({ isDark, toggleTheme }) {
             minHeight: 280,
           }}
         >
-          <Routes>
-            <Route path="/" element={<Dashboard isDark={isDark} />} />
-            <Route path="/market" element={<MarketCenter isDark={isDark} />} />
-            <Route path="/stock" element={<StockAnalysis isDark={isDark} />} />
-            <Route path="/stock/:code" element={<StockAnalysis isDark={isDark} />} />
-            <Route path="/trend" element={<TrendAnalysis isDark={isDark} />} />
-            <Route path="/quant" element={<QuantStrategy isDark={isDark} />} />
-            <Route path="/news" element={<NewsCenter isDark={isDark} />} />
-          </Routes>
+          <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}><Spin size="large" /></div>}>
+            <Routes>
+              <Route path="/" element={<Dashboard isDark={isDark} />} />
+              <Route path="/market" element={<MarketCenter isDark={isDark} />} />
+              <Route path="/stock" element={<StockAnalysis isDark={isDark} />} />
+              <Route path="/stock/:code" element={<StockAnalysis isDark={isDark} />} />
+              <Route path="/trend" element={<TrendAnalysis isDark={isDark} />} />
+              <Route path="/quant" element={<QuantStrategy isDark={isDark} />} />
+              <Route path="/news" element={<NewsCenter isDark={isDark} />} />
+            </Routes>
+          </Suspense>
         </Content>
       </Layout>
     </Layout>

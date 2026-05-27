@@ -66,10 +66,9 @@ export default function MarketCenter({ isDark }) {
   const fetchLimitBoard = useCallback(async (type) => {
     setLoading(true);
     try {
-      const res = await api.get('/market/ranking', {
-        params: { type, page: 1, page_size: 100 },
-      });
-      const items = Array.isArray(res) ? res : res?.list || [];
+      const endpoint = type === 'limit_up' ? '/market/limit-up' : '/market/limit-down';
+      const res = await api.get(endpoint);
+      const items = Array.isArray(res) ? res : [];
       if (type === 'limit_up') setLimitUp(items);
       else setLimitDown(items);
     } catch {
