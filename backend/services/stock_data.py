@@ -197,6 +197,25 @@ def get_market_overview() -> list:
                     'volume': _safe_float(latest[2]),
                     'amount': _safe_float(latest[3]),
                 })
+            else:
+                # baostock doesn't have this index, try akshare
+                try:
+                    import akshare as ak
+                    df = ak.stock_zh_index_spot_em()
+                    row = df[df['代码'] == code]
+                    if not row.empty:
+                        row = row.iloc[0]
+                        result.append({
+                            'code': code,
+                            'name': name,
+                            'price': float(row.get('最新价', 0)),
+                            'change': float(row.get('涨跌额', 0)),
+                            'change_pct': float(row.get('涨跌幅', 0)),
+                            'volume': float(row.get('成交量', 0)),
+                            'amount': float(row.get('成交额', 0)),
+                        })
+                except Exception as e2:
+                    logger.warning("Failed to fetch index %s from akshare: %s", code, e2)
         except Exception as e:
             logger.warning("Failed to fetch index %s: %s", code, e)
 
