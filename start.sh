@@ -66,11 +66,14 @@ echo ""
 
 # ─── Setup Python virtual environment ───────────────────────────────
 VENV_DIR="$PROJECT_DIR/backend/venv"
-if [ ! -d "$VENV_DIR" ]; then
+if [ ! -f "$VENV_DIR/bin/activate" ]; then
     echo -e "${BLUE}[1/4] Creating Python virtual environment...${NC}"
+    # Remove incomplete venv directory if it exists without activate script
+    [ -d "$VENV_DIR" ] && rm -rf "$VENV_DIR"
     python3 -m venv "$VENV_DIR"
     if [ ! -f "$VENV_DIR/bin/activate" ]; then
         echo -e "${RED}[ERROR] Failed to create virtual environment at $VENV_DIR${NC}"
+        echo -e "${RED}       Try manually: python3 -m venv $VENV_DIR${NC}"
         exit 1
     fi
     echo -e "${GREEN}  ✓ venv created at $VENV_DIR${NC}"
@@ -78,11 +81,6 @@ else
     echo -e "${GREEN}[1/4] Virtual environment already exists.${NC}"
 fi
 source "$VENV_DIR/bin/activate"
-
-# Install backend dependencies
-echo -e "${BLUE}[2/4] Installing backend dependencies...${NC}"
-cd "$PROJECT_DIR/backend"
-pip install -r requirements.txt -q
 
 # Install frontend dependencies (pnpm preferred)
 echo -e "${BLUE}[3/4] Installing frontend dependencies...${NC}"
