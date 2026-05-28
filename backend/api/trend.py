@@ -56,32 +56,14 @@ def _fetch_stock_hist(code: str, days: int = 120) -> pd.DataFrame:
         DataFrame with OHLCV data, or empty DataFrame on failure.
     """
     try:
-        import akshare as ak
+        from services.stock_data import get_kline
         end_date = datetime.now().strftime('%Y%m%d')
         start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
 
-        df = ak.stock_zh_a_hist(
-            symbol=code,
-            period='daily',
-            start_date=start_date,
-            end_date=end_date,
-            adjust='qfq',
-        )
+        df = get_kline(code, start_date=start_date, end_date=end_date, adjust='qfq')
 
         if df is None or df.empty:
             return pd.DataFrame()
-
-        col_map = {
-            '日期': 'date',
-            '开盘': 'open',
-            '收盘': 'close',
-            '最高': 'high',
-            '最低': 'low',
-            '成交量': 'volume',
-            '涨跌幅': 'change_pct',
-        }
-        available_cols = {k: v for k, v in col_map.items() if k in df.columns}
-        df = df.rename(columns=available_cols)
 
         for col in ['open', 'close', 'high', 'low', 'volume']:
             if col in df.columns:

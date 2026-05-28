@@ -103,30 +103,11 @@ def _fetch_stock_data(code: str, start_date: str, end_date: str) -> pd.DataFrame
         DataFrame with OHLCV data.
     """
     try:
-        import akshare as ak
-        df = ak.stock_zh_a_hist(
-            symbol=code,
-            period='daily',
-            start_date=start_date,
-            end_date=end_date,
-            adjust='qfq',
-        )
+        from services.stock_data import get_kline
+        df = get_kline(code, start_date=start_date, end_date=end_date, adjust='qfq')
 
         if df is None or df.empty:
             return pd.DataFrame()
-
-        col_map = {
-            '日期': 'date',
-            '开盘': 'open',
-            '收盘': 'close',
-            '最高': 'high',
-            '最低': 'low',
-            '成交量': 'volume',
-            '成交额': 'amount',
-            '涨跌幅': 'change_pct',
-        }
-        available_cols = {k: v for k, v in col_map.items() if k in df.columns}
-        df = df.rename(columns=available_cols)
 
         for col in ['open', 'close', 'high', 'low', 'volume']:
             if col in df.columns:
