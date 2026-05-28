@@ -20,28 +20,15 @@ echo "  中国股市量化分析平台（前端已重构为 TypeScript）"
 echo ""
 
 # ─── Environment preflight checks ───────────────────────────────────
-echo -e "${BLUE}[0/4] Checking environment prerequisites...${NC}"
+echo -e "${BLUE}[0/5] Checking environment prerequisites...${NC}"
 
 # Check Python
 if ! command -v python3 &> /dev/null; then
     echo -e "${RED}[ERROR] Python3 not found. Please install Python 3.9+${NC}"
     exit 1
 fi
-
 PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
 echo -e "${GREEN}  ✓ Python $PY_VER${NC}"
-
-# Check python3-venv support (Debian/Ubuntu splits this out)
-if ! python3 -c "import venv" &>/dev/null; then
-    echo -e "${YELLOW}[WARN] python3 venv module missing, attempting to install...${NC}"
-    sudo apt-get update -qq && sudo apt-get install -y -qq python3-venv 2>/dev/null || \
-    sudo apt install -y -qq python3.12-venv 2>/dev/null || true
-    if ! python3 -c "import venv" &>/dev/null; then
-        echo -e "${RED}[ERROR] python3 venv module unavailable. Install python3-venv first.${NC}"
-        exit 1
-    fi
-fi
-echo -e "${GREEN}  ✓ python3-venv OK${NC}"
 
 # Check Node
 if ! command -v node &> /dev/null; then
@@ -67,23 +54,39 @@ echo ""
 # ─── Setup Python virtual environment ───────────────────────────────
 VENV_DIR="$PROJECT_DIR/backend/venv"
 if [ ! -f "$VENV_DIR/bin/activate" ]; then
-    echo -e "${BLUE}[1/4] Creating Python virtual environment...${NC}"
-    # Remove incomplete venv directory if it exists without activate script
+    echo -e "${BLUE}[1/5] Creating Python virtual environment...${NC}"
     [ -d "$VENV_DIR" ] && rm -rf "$VENV_DIR"
-    python3 -m venv "$VENV_DIR"
+
+    # Try creating venv; if ensurepip is missing, install python3-venv and retry
+    if ! python3 -m venv "$VENV_DIR" 2>/dev/null; then
+        echo -e "${YELLOW}  ensurepip not available, installing python3-venv...${NC}"
+        # Detect the correct package name (e.g. python3.12-venv)
+        VENV_PKG="python3${PY_VER:+${PY_VER}}-venv"
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq "$VENV_PKG" || sudo apt-get install -y -qq python3-venv
+        # Retry
+        [ -d "$VENV_DIR" ] && rm -rf "$VENV_DIR"
+        python3 -m venv "$VENV_DIR"
+    fi
+
     if [ ! -f "$VENV_DIR/bin/activate" ]; then
-        echo -e "${RED}[ERROR] Failed to create virtual environment at $VENV_DIR${NC}"
-        echo -e "${RED}       Try manually: python3 -m venv $VENV_DIR${NC}"
+        echo -e "${RED}[ERROR] Failed to create venv. Run manually:${NC}"
+        echo -e "${RED}  sudo apt install python3-venv && python3 -m venv $VENV_DIR${NC}"
         exit 1
     fi
-    echo -e "${GREEN}  ✓ venv created at $VENV_DIR${NC}"
+    echo -e "${GREEN}  ✓ venv created${NC}"
 else
-    echo -e "${GREEN}[1/4] Virtual environment already exists.${NC}"
+    echo -e "${GREEN}[1/5] Virtual environment already exists.${NC}"
 fi
 source "$VENV_DIR/bin/activate"
 
-# Install frontend dependencies (pnpm preferred)
-echo -e "${BLUE}[3/4] Installing frontend dependencies...${NC}"
+# ─── Install backend dependencies ──────────────────────────────────
+echo -e "${BLUE}[2/5] Installing backend dependencies...${NC}"
+cd "$PROJECT_DIR/backend"
+pip install -r requirements.txt -q
+
+# ─── Install frontend dependencies ─────────────────────────────────
+echo -e "${BLUE}[3/5] Installing frontend dependencies...${NC}"
 cd "$PROJECT_DIR/frontend"
 if [ "$FE_PM" = "pnpm" ]; then
     pnpm install --ignore-workspace
@@ -91,8 +94,8 @@ else
     npm install --legacy-peer-deps
 fi
 
-# Start backend
-echo -e "${BLUE}[4/4] Starting backend server (port 5000)...${NC}"
+# ─── Start backend ─────────────────────────────────────────────────
+echo -e "${BLUE}[4/5] Starting backend server (port 5000)...${NC}"
 cd "$PROJECT_DIR/backend"
 python app.py &
 BACKEND_PID=$!
@@ -100,8 +103,8 @@ BACKEND_PID=$!
 # Wait for backend to be ready
 sleep 3
 
-# Start frontend
-echo -e "${BLUE}[4/4] Starting frontend dev server (port 3000)...${NC}"
+# ─── Start frontend ────────────────────────────────────────────────
+echo -e "${BLUE}[5/5] Starting frontend dev server (port 3000)...${NC}"
 cd "$PROJECT_DIR/frontend"
 npx vite --port 3000 --host &
 FRONTEND_PID=$!
