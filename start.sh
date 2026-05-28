@@ -86,7 +86,7 @@ source "$VENV_DIR/bin/activate"
 echo -e "${BLUE}[3/4] Installing frontend dependencies...${NC}"
 cd "$PROJECT_DIR/frontend"
 if [ "$FE_PM" = "pnpm" ]; then
-    pnpm install
+    pnpm install --ignore-workspace
 else
     npm install --legacy-peer-deps
 fi
