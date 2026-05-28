@@ -368,13 +368,15 @@ def market_sectors():
             if industry_name:
                 industry_map[code_num] = industry_name
 
-        # Get latest data for MOCK_STOCKS and group by industry
+        # Get latest data for a small representative stock sample
         end_date = datetime.now().strftime('%Y-%m-%d')
         start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
 
         industry_data = defaultdict(lambda: {'stocks': [], 'up': 0, 'down': 0, 'total_change': 0})
 
-        for s in MOCK_STOCKS:
+        # Use a smaller sample for speed (first 15 stocks from MOCK_STOCKS)
+        sample = MOCK_STOCKS[:15]
+        for s in sample:
             code = s['code']
             industry = industry_map.get(code, '其他')
             try:
