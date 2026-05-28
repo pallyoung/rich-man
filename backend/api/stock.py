@@ -360,53 +360,61 @@ def stock_fundamental(code):
         return _success(cached)
 
     try:
-        import akshare as ak
-        # Get individual stock info
-        df = ak.stock_individual_info_em(symbol=code)
+        from services.stock_data import get_kline, get_stock_info, _ensure_login, _code_to_bs
+        import baostock as bs
 
-        if df is None or df.empty:
-            return _error(f"No fundamental data found for stock {code}")
-
-        # Build result from the info DataFrame
-        result = {'code': code}
-        info_dict = {}
-        for _, row in df.iterrows():
-            key = str(row.iloc[0]) if len(row) > 0 else ''
-            value = row.iloc[1] if len(row) > 1 else ''
-            info_dict[key] = value
-
-        # Map known fields
-        field_map = {
-            '总市值': 'market_cap',
-            '流通市值': 'float_market_cap',
-            '行业': 'industry',
-            '上市时间': 'listing_date',
-            '股票代码': 'stock_code',
-            '股票简称': 'name',
-            '市盈率(动态)': 'pe_dynamic',
-            '市净率': 'pb',
-            '总股本': 'total_shares',
-            '流通股': 'float_shares',
+        info = get_stock_info(code)
+        result = {
+            'code': code,
+            'name': info.get('name', f'股票{code}'),
+            'listing_date': info.get('ipo_date', ''),
+            'industry': '',
         }
 
-        for cn_key, en_key in field_map.items():
-            if cn_key in info_dict:
-                result[en_key] = info_dict[cn_key]
-
-        # Try to get financial data
+        # Get industry from baostock
         try:
-            fin_df = ak.stock_financial_abstract_ths(symbol=code, indicator="按报告期")
-            if fin_df is not None and not fin_df.empty:
-                latest = fin_df.iloc[0]
-                fin_data = {}
-                for col in fin_df.columns:
-                    val = latest.get(col)
-                    if val is not None:
-                        fin_data[str(col)] = str(val)
-                result['financial_abstract'] = fin_data
-        except Exception as fe:
-            logger.debug("Could not fetch financial abstract for %s: %s", code, fe)
+            _ensure_login()
+            bs_code = _code_to_bs(code)
+            rs = bs.query_stock_industry(code=bs_code)
+            while rs.next():
+                row = rs.get_row_data()
+                result['industry'] = row[3] if len(row) > 3 else ''
+                break
+        except Exception:
+            pass
 
+        # Get profit data
+        try:
+            _ensure_login()
+            bs_code = _code_to_bs(code)
+            rs = bs.query_profit_data(code=bs_code, year=2024, quarter=4)
+            while rs.next():
+                row = rs.get_row_data()
+                if len(row) > 5:
+                    result['roe'] = row[3]
+                    result['net_profit_margin'] = row[4]
+                    result['gross_profit_margin'] = row[5]
+                if len(row) > 6:
+                    result['net_profit'] = row[6]
+                break
+        except Exception:
+            pass
+
+        # Get latest price info
+        df = get_kline(code, period='daily')
+        if df is not None and not df.empty:
+            latest = df.iloc[-1]
+            result['price'] = round(float(latest.get('close', 0)), 2)
+            result['volume'] = float(latest.get('volume', 0))
+            result['turnover_rate'] = float(latest.get('turnover_rate', 0))
+
+        set_cached(cache_key, result, ttl_seconds=600)
+        return _success(result)
+
+    except Exception as e:
+        logger.warning("Failed to fetch fundamental data for %s: %s, using mock", code, e)
+        from services.mock_data import generate_fundamental
+        result = generate_fundamental(code)
         set_cached(cache_key, result, ttl_seconds=30)
         return _success(result)
 
@@ -438,31 +446,35 @@ def stock_search():
         return _success(cached)
 
     try:
-        from services.stock_data import _ensure_login
-        import baostock as bs
-        _ensure_login()
+        # Try to get from cache first (full stock list cached for 24h)
+        list_cache_key = 'stock_list_all'
+        stock_list = get_cached(list_cache_key, max_age_seconds=86400)
 
-        # Search by code or name using baostock stock list
-        rs = bs.query_stock_basic()
-        items = []
-        while rs.next():
-            row = rs.get_row_data()
-            # row: [code, code_name, ipoDate, outDate, type, status]
-            bs_code = row[0]  # e.g., "sh.600519"
-            name = row[1]
-            code_num = bs_code.split('.')[-1] if '.' in bs_code else bs_code
+        if stock_list is None:
+            from services.stock_data import _ensure_login
+            import baostock as bs
+            _ensure_login()
 
-            # Only include active stocks (status=1)
-            if len(row) > 5 and row[5] != '1':
-                continue
-            # Only include actual stocks (type=1)
-            if len(row) > 4 and row[4] != '1':
-                continue
+            rs = bs.query_stock_basic()
+            stock_list = []
+            while rs.next():
+                row = rs.get_row_data()
+                bs_code = row[0]
+                name = row[1]
+                code_num = bs_code.split('.')[-1] if '.' in bs_code else bs_code
+                if len(row) > 5 and row[5] != '1':
+                    continue
+                if len(row) > 4 and row[4] != '1':
+                    continue
+                stock_list.append({'code': code_num, 'name': name})
 
-            if keyword.lower() in code_num or keyword in name:
-                items.append({'code': code_num, 'name': name})
-                if len(items) >= 20:
-                    break
+            set_cached(list_cache_key, stock_list, ttl_seconds=86400)
+
+        # Search in cached list
+        items = [
+            s for s in stock_list
+            if keyword.lower() in s['code'].lower() or keyword in s['name']
+        ][:20]
 
         set_cached(cache_key, items, ttl_seconds=3600)
         return _success(items)
