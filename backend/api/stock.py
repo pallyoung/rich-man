@@ -135,7 +135,7 @@ def kline_data(code):
         from services.mock_data import generate_kline
         kline = generate_kline(code)
         result = {'code': code, 'period': period, 'adjust': adjust, 'data': kline}
-        set_cached(cache_key, result, ttl_seconds=300)
+        set_cached(cache_key, result, ttl_seconds=30)
         return _success(result)
 
 
@@ -379,7 +379,7 @@ def stock_indicators(code):
             'RSI': {f'RSI{p}': _safe_float(latest.get(f'RSI{p}')) for p in [6, 12, 24]},
             'BOLL': {'UPPER': _safe_float(latest.get('BOLL_UPPER')), 'MID': _safe_float(latest.get('BOLL_MID')), 'LOWER': _safe_float(latest.get('BOLL_LOWER'))},
         }
-        set_cached(cache_key, result, ttl_seconds=300)
+        set_cached(cache_key, result, ttl_seconds=30)
         return _success(result)
 
 
@@ -447,14 +447,14 @@ def stock_fundamental(code):
         except Exception as fe:
             logger.debug("Could not fetch financial abstract for %s: %s", code, fe)
 
-        set_cached(cache_key, result, ttl_seconds=600)
+        set_cached(cache_key, result, ttl_seconds=30)
         return _success(result)
 
     except Exception as e:
         logger.warning("Failed to fetch fundamental data for %s: %s, using mock", code, e)
         from services.mock_data import generate_fundamental
         result = generate_fundamental(code)
-        set_cached(cache_key, result, ttl_seconds=600)
+        set_cached(cache_key, result, ttl_seconds=30)
         return _success(result)
 
 

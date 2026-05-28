@@ -271,7 +271,7 @@ def factor_select():
         # Limit results
         result = scored_stocks[:limit]
 
-        set_cached(cache_key, result, ttl_seconds=600)
+        set_cached(cache_key, result, ttl_seconds=30)
         return _success(result)
 
     except Exception as e:
@@ -293,7 +293,7 @@ def factor_select():
                 'total_score': round(random.uniform(50, 95), 2),
             })
         stocks.sort(key=lambda x: x['total_score'], reverse=True)
-        set_cached(cache_key, stocks[:limit], ttl_seconds=600)
+        set_cached(cache_key, stocks[:limit], ttl_seconds=30)
         return _success(stocks[:limit])
 
 

@@ -14,6 +14,10 @@ from flask_cors import CORS
 # Add the backend directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Apply TLS bypass patch before importing akshare-dependent modules
+from patches.tls_patch import apply_patch as apply_tls_patch
+apply_tls_patch()
+
 from services.cache import init_db, clear_expired
 from api.market import market_bp
 from api.stock import stock_bp

@@ -379,7 +379,7 @@ def compare_trends():
                 'error': str(e),
             })
 
-    set_cached(cache_key, comparisons, ttl_seconds=300)
+    set_cached(cache_key, comparisons, ttl_seconds=30)
     return _success(comparisons)
 
 
@@ -534,7 +534,7 @@ def sector_rotation():
         random.seed(42)
         for s in mock_sectors:
             s['score'] = round(random.uniform(30, 80), 1)
-        set_cached(cache_key, mock_sectors, ttl_seconds=300)
+        set_cached(cache_key, mock_sectors, ttl_seconds=30)
         return _success(mock_sectors)
 
 

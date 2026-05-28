@@ -388,7 +388,7 @@ def stock_announcements():
                     'type': str(row.get('类型', '公告')),
                     'url': str(row.get('链接', '')),
                 })
-            set_cached(cache_key, announcements, ttl_seconds=300)
+            set_cached(cache_key, announcements, ttl_seconds=30)
             return _success(announcements)
     except Exception as e:
         logger.warning("Failed to fetch announcements for %s: %s", stock_code, e)
@@ -414,5 +414,5 @@ def stock_announcements():
             'url': '',
         },
     ]
-    set_cached(cache_key, fallback, ttl_seconds=300)
+    set_cached(cache_key, fallback, ttl_seconds=30)
     return _success(fallback)
