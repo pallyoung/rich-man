@@ -497,6 +497,7 @@ def intraday_data(code):
     """Get intraday (minute-level) data for a stock.
 
     Returns list of {time, price, volume} for today.
+    Note: Minute-level data requires real-time data source.
     """
     code = normalize_stock_code(code)
     cache_key = f'stock_intraday_{code}'
@@ -521,29 +522,6 @@ def intraday_data(code):
             set_cached(cache_key, data, ttl_seconds=30)
             return _success(data)
     except Exception as e:
-        logger.warning("Intraday data failed for %s: %s, using mock", code, e)
+        logger.warning("Intraday data failed for %s: %s", code, e)
 
-    # Generate mock intraday data
-    import random
-    random.seed(hash(code))
-    from services.mock_data import generate_kline
-    mock_kline = generate_kline(code, days=1)
-    base = mock_kline[0]['close'] if mock_kline else 50.0
-    price = base
-    intraday = []
-    for h in range(9, 16):
-        for m in range(0, 60, 5):
-            if h == 11 and m >= 30:
-                continue
-            if h == 12:
-                continue
-            if h == 15 and m > 0:
-                continue
-            price = price * (1 + random.gauss(0, 0.002))
-            intraday.append({
-                'time': f'{h:02d}:{m:02d}',
-                'price': round(price, 2),
-                'volume': int(random.uniform(10000, 200000)),
-            })
-    set_cached(cache_key, intraday, ttl_seconds=30)
-    return _success(intraday)
+    return _success([])

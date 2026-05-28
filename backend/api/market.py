@@ -299,45 +299,55 @@ def market_updown_stats():
         return _success(cached)
 
     try:
-        import akshare as ak
-        df = ak.stock_zh_a_spot_em()
-        if df is not None and not df.empty:
-            col = '涨跌幅'
-            if col in df.columns:
-                values = pd.to_numeric(df[col], errors='coerce').dropna()
-                up_count = int((values > 0).sum())
-                down_count = int((values < 0).sum())
-                flat_count = int((values == 0).sum())
-            else:
-                up_count = down_count = flat_count = 0
+        from services.stock_data import get_kline, _ensure_login, _code_to_bs
+        from services.mock_data import MOCK_STOCKS
+        import baostock as bs
+        from datetime import datetime, timedelta
 
-            # Simple sentiment: based on up/down ratio
-            total = up_count + down_count + flat_count
-            if total > 0:
-                sentiment = round((up_count / total) * 100, 1)
-            else:
-                sentiment = 50.0
+        _ensure_login()
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
 
-            result = {
-                'up_count': up_count,
-                'down_count': down_count,
-                'flat_count': flat_count,
-                'sentiment': sentiment,
-            }
-            set_cached(cache_key, result, ttl_seconds=60)
-            return _success(result)
+        up_count = 0
+        down_count = 0
+        flat_count = 0
+
+        for s in MOCK_STOCKS:
+            try:
+                bs_code = _code_to_bs(s['code'])
+                rs = bs.query_history_k_data_plus(
+                    bs_code, "date,pctChg",
+                    start_date=start_date, end_date=end_date,
+                    frequency="d", adjustflag="2"
+                )
+                rows = []
+                while rs.next():
+                    rows.append(rs.get_row_data())
+                if rows:
+                    change = float(rows[-1][1]) if rows[-1][1] else 0
+                    if change > 0:
+                        up_count += 1
+                    elif change < 0:
+                        down_count += 1
+                    else:
+                        flat_count += 1
+            except Exception:
+                pass
+
+        total = up_count + down_count + flat_count
+        sentiment = round((up_count / total) * 100, 1) if total > 0 else 50.0
+
+        result = {
+            'up_count': up_count,
+            'down_count': down_count,
+            'flat_count': flat_count,
+            'sentiment': sentiment,
+        }
+        set_cached(cache_key, result, ttl_seconds=120)
+        return _success(result)
     except Exception as e:
-        logger.warning("Failed to fetch updown stats: %s, using mock", e)
-
-    import random
-    random.seed(42)
-    result = {
-        'up_count': random.randint(1500, 3000),
-        'down_count': random.randint(1000, 2500),
-        'flat_count': random.randint(100, 500),
-        'sentiment': round(random.uniform(40, 65), 1),
-    }
-    set_cached(cache_key, result, ttl_seconds=60)
+        logger.warning("Failed to fetch updown stats: %s", e)
+        return _error("暂无涨跌统计数据")
     return _success(result)
 
 
