@@ -350,46 +350,79 @@ def market_sectors():
         return _success(cached)
 
     try:
-        import akshare as ak
-        df = ak.stock_board_industry_name_em()
+        from services.stock_data import _ensure_login, _code_to_bs, _safe_float as bs_safe_float
+        from services.mock_data import MOCK_STOCKS
+        import baostock as bs
+        from collections import defaultdict
+        from datetime import datetime, timedelta
 
-        if df is None or df.empty:
-            from services.mock_data import generate_sectors
-            sectors = generate_sectors()
-            set_cached(cache_key, sectors, ttl_seconds=120)
-            return _success(sectors)
+        _ensure_login()
 
-        col_map = {
-            '板块名称': 'name',
-            '板块代码': 'code',
-            '涨跌幅': 'change_pct',
-            '总市值': 'market_cap',
-            '换手率': 'turnover_rate',
-            '上涨家数': 'up_count',
-            '下跌家数': 'down_count',
-            '领涨股票': 'leading_stock',
-            '领涨涨跌幅': 'leading_change_pct',
-        }
+        # Get industry classification from baostock
+        rs = bs.query_stock_industry()
+        industry_map = {}
+        while rs.next():
+            row = rs.get_row_data()
+            code_num = row[1].split('.')[-1] if '.' in row[1] else row[1]
+            industry_name = row[3] if len(row) > 3 else ''
+            if industry_name:
+                industry_map[code_num] = industry_name
 
-        available_cols = {k: v for k, v in col_map.items() if k in df.columns}
-        df = df.rename(columns=available_cols)
-        df = df.sort_values('change_pct', ascending=False, na_position='last')
+        # Get latest data for MOCK_STOCKS and group by industry
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
 
+        industry_data = defaultdict(lambda: {'stocks': [], 'up': 0, 'down': 0, 'total_change': 0})
+
+        for s in MOCK_STOCKS:
+            code = s['code']
+            industry = industry_map.get(code, '其他')
+            try:
+                bs_code = _code_to_bs(code)
+                rs = bs.query_history_k_data_plus(
+                    bs_code, "date,close,pctChg",
+                    start_date=start_date, end_date=end_date,
+                    frequency="d", adjustflag="2"
+                )
+                rows = []
+                while rs.next():
+                    rows.append(rs.get_row_data())
+                if rows:
+                    latest = rows[-1]
+                    change_pct = bs_safe_float(latest[2])
+                    price = bs_safe_float(latest[1])
+                    industry_data[industry]['stocks'].append({
+                        'code': code, 'name': s['name'],
+                        'price': price, 'change_pct': change_pct,
+                    })
+                    industry_data[industry]['total_change'] += change_pct
+                    if change_pct > 0:
+                        industry_data[industry]['up'] += 1
+                    elif change_pct < 0:
+                        industry_data[industry]['down'] += 1
+            except Exception:
+                pass
+
+        # Build sector list
         sectors = []
-        for _, row in df.iterrows():
-            sector = {
-                'code': str(row.get('code', '')),
-                'name': str(row.get('name', '')),
-                'change_pct': _safe_float(row.get('change_pct')),
-                'market_cap': _safe_float(row.get('market_cap')),
-                'turnover_rate': _safe_float(row.get('turnover_rate')),
-                'up_count': int(_safe_float(row.get('up_count', 0))),
-                'down_count': int(_safe_float(row.get('down_count', 0))),
-                'leading_stock': str(row.get('leading_stock', '')),
-                'leading_change_pct': _safe_float(row.get('leading_change_pct')),
-            }
-            sectors.append(sector)
+        for name, data in industry_data.items():
+            if not data['stocks']:
+                continue
+            avg_change = round(data['total_change'] / len(data['stocks']), 2)
+            leading = max(data['stocks'], key=lambda x: x['change_pct'])
+            sectors.append({
+                'code': '',
+                'name': name,
+                'change_pct': avg_change,
+                'market_cap': 0,
+                'turnover_rate': 0,
+                'up_count': data['up'],
+                'down_count': data['down'],
+                'leading_stock': leading['name'],
+                'leading_change_pct': leading['change_pct'],
+            })
 
+        sectors.sort(key=lambda x: x['change_pct'], reverse=True)
         set_cached(cache_key, sectors, ttl_seconds=120)
         return _success(sectors)
 

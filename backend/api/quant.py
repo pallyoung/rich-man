@@ -180,33 +180,31 @@ def factor_select():
         return _success(cached)
 
     try:
-        import akshare as ak
+        from services.stock_data import get_kline, get_stock_info, _ensure_login, _code_to_bs
+        from services.mock_data import MOCK_STOCKS
+        import baostock as bs
 
-        # Get real-time data for all A-share stocks
-        spot_df = ak.stock_zh_a_spot_em()
-        if spot_df is None or spot_df.empty:
-            return _error("Failed to fetch stock data")
+        _ensure_login()
 
-        # Filter to our pool (or use all if pool not matching)
+        # Build stock pool from MOCK_STOCKS + STOCK_POOL
         pool_codes = set(STOCK_POOL)
-        spot_df = spot_df[spot_df['代码'].isin(pool_codes)]
-
-        if spot_df.empty:
-            # If pool doesn't match, use top stocks by market cap
-            spot_df = ak.stock_zh_a_spot_em().head(100)
-
-        # Build stock data
         stocks = []
-        for _, row in spot_df.iterrows():
-            stock = {
-                'code': str(row.get('代码', '')),
-                'name': str(row.get('名称', '')),
-                'price': _safe_float(row.get('最新价')),
-                'PE': _safe_float(row.get('市盈率-动态')),
-                'PB': _safe_float(row.get('市净率')),
-                'market_cap': _safe_float(row.get('总市值')),
-            }
-            stocks.append(stock)
+
+        # Get stock info for pool
+        for code in pool_codes:
+            try:
+                info = get_stock_info(code)
+                name = info.get('name', f'股票{code}')
+                df = get_kline(code, period='daily')
+                if df is not None and not df.empty:
+                    latest = df.iloc[-1]
+                    price = round(float(latest.get('close', 0)), 2)
+                    stocks.append({
+                        'code': code, 'name': name, 'price': price,
+                        'PE': 0, 'PB': 0, 'market_cap': 0,
+                    })
+            except Exception:
+                pass
 
         # Calculate momentum and volatility from historical data
         for stock in stocks:
