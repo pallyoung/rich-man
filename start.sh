@@ -19,38 +19,63 @@ echo -e "${NC}"
 echo "  中国股市量化分析平台（前端已重构为 TypeScript）"
 echo ""
 
+# ─── Environment preflight checks ───────────────────────────────────
+echo -e "${BLUE}[0/4] Checking environment prerequisites...${NC}"
+
 # Check Python
 if ! command -v python3 &> /dev/null; then
     echo -e "${RED}[ERROR] Python3 not found. Please install Python 3.9+${NC}"
     exit 1
 fi
 
+PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+echo -e "${GREEN}  ✓ Python $PY_VER${NC}"
+
+# Check python3-venv support (Debian/Ubuntu splits this out)
+if ! python3 -c "import venv" &>/dev/null; then
+    echo -e "${YELLOW}[WARN] python3 venv module missing, attempting to install...${NC}"
+    sudo apt-get update -qq && sudo apt-get install -y -qq python3-venv 2>/dev/null || \
+    sudo apt install -y -qq python3.12-venv 2>/dev/null || true
+    if ! python3 -c "import venv" &>/dev/null; then
+        echo -e "${RED}[ERROR] python3 venv module unavailable. Install python3-venv first.${NC}"
+        exit 1
+    fi
+fi
+echo -e "${GREEN}  ✓ python3-venv OK${NC}"
+
 # Check Node
 if ! command -v node &> /dev/null; then
     echo -e "${RED}[ERROR] Node.js not found. Please install Node.js 18+${NC}"
     exit 1
 fi
+NODE_VER=$(node -v)
+echo -e "${GREEN}  ✓ Node.js $NODE_VER${NC}"
 
 # Prefer pnpm for frontend
 if command -v pnpm &> /dev/null; then
     FE_PM="pnpm"
+    echo -e "${GREEN}  ✓ pnpm $(pnpm -v)${NC}"
 else
     FE_PM="npm"
+    echo -e "${GREEN}  ✓ npm $(npm -v)${NC}"
 fi
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+echo -e "${GREEN}  ✓ PROJECT_DIR=$PROJECT_DIR${NC}"
+echo ""
 
-# Setup Python virtual environment
+# ─── Setup Python virtual environment ───────────────────────────────
 VENV_DIR="$PROJECT_DIR/backend/venv"
 if [ ! -d "$VENV_DIR" ]; then
     echo -e "${BLUE}[1/4] Creating Python virtual environment...${NC}"
-    # Ensure python3-venv is installed (required on Debian/Ubuntu)
-    if ! python3 -m venv "$VENV_DIR" 2>/dev/null; then
-        echo -e "${YELLOW}[INFO] Installing python3-venv...${NC}"
-        sudo apt-get update -qq && sudo apt-get install -y -qq python3-venv 2>/dev/null || \
-        sudo apt install -y -qq python3.12-venv 2>/dev/null || true
-        python3 -m venv "$VENV_DIR"
+    python3 -m venv "$VENV_DIR"
+    if [ ! -f "$VENV_DIR/bin/activate" ]; then
+        echo -e "${RED}[ERROR] Failed to create virtual environment at $VENV_DIR${NC}"
+        exit 1
     fi
+    echo -e "${GREEN}  ✓ venv created at $VENV_DIR${NC}"
+else
+    echo -e "${GREEN}[1/4] Virtual environment already exists.${NC}"
 fi
 source "$VENV_DIR/bin/activate"
 
