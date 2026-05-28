@@ -92,15 +92,14 @@ def market_overview():
         indices = get_market_overview()
 
         if not indices:
-            indices = MOCK_INDICES
+            return _error("暂无指数数据")
 
         set_cached(cache_key, indices, ttl_seconds=30)
         return _success(indices)
 
     except Exception as e:
         logger.warning("Failed to fetch market overview: %s", e)
-        set_cached(cache_key, MOCK_INDICES, ttl_seconds=30)
-        return _success(MOCK_INDICES)
+        return _error("暂无指数数据")
 
 
 @market_bp.route('/api/market/ranking', methods=['GET'])
@@ -193,10 +192,7 @@ def stock_ranking():
 
     except Exception as e:
         logger.warning("Failed to fetch stock ranking: %s", e)
-        from services.mock_data import generate_ranking
-        result = generate_ranking(rank_type, page, page_size)
-        set_cached(cache_key, result, ttl_seconds=60)
-        return _success(result)
+        return _error("暂无排行数据")
 
 
 
@@ -440,10 +436,7 @@ def market_sectors():
 
     except Exception as e:
         logger.warning("Failed to fetch sector data: %s", e)
-        from services.mock_data import generate_sectors
-        sectors = generate_sectors()
-        set_cached(cache_key, sectors, ttl_seconds=120)
-        return _success(sectors)
+        return _error("暂无板块数据")
 
 
 @market_bp.route('/api/market/hot', methods=['GET'])
@@ -495,21 +488,4 @@ def dragon_tiger_list():
     except Exception as e:
         logger.warning("Failed to fetch Dragon Tiger list: %s, using mock", e)
 
-    # Mock Dragon Tiger data
-    import random
-    from services.mock_data import MOCK_STOCKS
-    random.seed(42)
-    mock_data = []
-    for s in random.sample(MOCK_STOCKS, min(10, len(MOCK_STOCKS))):
-        mock_data.append({
-            'code': s['code'],
-            'name': s['name'],
-            'price': round(s['base'] * random.uniform(0.95, 1.05), 2),
-            'change_pct': round(random.uniform(-5, 10), 2),
-            'net_buy': round(random.uniform(-5e8, 2e9), 2),
-            'buy_amount': round(random.uniform(1e8, 3e9), 2),
-            'sell_amount': round(random.uniform(1e8, 3e9), 2),
-            'reason': random.choice(['日涨幅偏离值达7%', '日换手率达20%', '日振幅值达15%']),
-        })
-    set_cached(cache_key, mock_data, ttl_seconds=120)
-    return _success(mock_data)
+    return _error("暂无龙虎榜数据")

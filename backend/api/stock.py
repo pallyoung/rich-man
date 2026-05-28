@@ -107,12 +107,8 @@ def kline_data(code):
         return _success(result)
 
     except Exception as e:
-        logger.warning("Failed to fetch K-line data for %s: %s, using mock", code, e)
-        from services.mock_data import generate_kline
-        kline = generate_kline(code)
-        result = {'code': code, 'period': period, 'adjust': adjust, 'data': kline}
-        set_cached(cache_key, result, ttl_seconds=30)
-        return _success(result)
+        logger.warning("Failed to fetch K-line data for %s: %s", code, e)
+        return _error(f"暂无{code}的K线数据")
 
 
 @stock_bp.route('/api/stock/<code>/realtime', methods=['GET'])
@@ -167,24 +163,8 @@ def realtime_quote(code):
         return _success(result)
 
     except Exception as e:
-        logger.warning("Failed to fetch realtime quote for %s: %s, using mock", code, e)
-        from services.mock_data import generate_fundamental
-        mock = generate_fundamental(code)
-        result = {
-            'code': code, 'name': mock['name'], 'price': mock.get('base', 20),
-            'open': round(mock.get('base', 20) * 0.99, 2),
-            'high': round(mock.get('base', 20) * 1.02, 2),
-            'low': round(mock.get('base', 20) * 0.98, 2),
-            'pre_close': round(mock.get('base', 20) * 0.995, 2),
-            'change': round(mock.get('base', 20) * 0.01, 2),
-            'change_pct': 1.0, 'volume': 500000, 'amount': 1e9,
-            'turnover_rate': 2.5, 'pe': mock['pe_dynamic'], 'pb': mock['pb'],
-            'market_cap': mock['market_cap'], 'float_market_cap': mock['float_market_cap'],
-            'amplitude': 3.5, 'volume_ratio': 1.2, 'market': 'SZ',
-            'timestamp': datetime.now().isoformat(),
-        }
-        set_cached(cache_key, result, ttl_seconds=10)
-        return _success(result)
+        logger.warning("Failed to fetch realtime quote for %s: %s", code, e)
+        return _error(f"暂无{code}的实时行情")
 
 
 @stock_bp.route('/api/stock/<code>/indicators', methods=['GET'])
@@ -318,10 +298,8 @@ def stock_indicators(code):
         return _success(result)
 
     except Exception as e:
-        logger.warning("Failed to calculate indicators for %s: %s, using mock", code, e)
-        from services.mock_data import generate_kline
-        mock_kline = generate_kline(code, days=500)
-        df = pd.DataFrame(mock_kline)
+        logger.warning("Failed to calculate indicators for %s: %s", code, e)
+        return _error(f"暂无{code}的指标数据")
         for col in ['open', 'close', 'high', 'low', 'volume']:
             df[col] = pd.to_numeric(df[col], errors='coerce')
         df = calculate_all_indicators(df)
@@ -412,18 +390,12 @@ def stock_fundamental(code):
         return _success(result)
 
     except Exception as e:
-        logger.warning("Failed to fetch fundamental data for %s: %s, using mock", code, e)
-        from services.mock_data import generate_fundamental
-        result = generate_fundamental(code)
-        set_cached(cache_key, result, ttl_seconds=30)
-        return _success(result)
+        logger.warning("Failed to fetch fundamental data for %s: %s", code, e)
+        return _error(f"暂无{code}的基本面数据")
 
     except Exception as e:
-        logger.warning("Failed to fetch fundamental data for %s: %s, using mock", code, e)
-        from services.mock_data import generate_fundamental
-        result = generate_fundamental(code)
-        set_cached(cache_key, result, ttl_seconds=30)
-        return _success(result)
+        logger.warning("Failed to fetch fundamental data for %s: %s", code, e)
+        return _error(f"暂无{code}的基本面数据")
 
 
 @stock_bp.route('/api/stock/search', methods=['GET'])
@@ -481,15 +453,7 @@ def stock_search():
     except Exception as e:
         logger.warning("Stock search failed for '%s': %s, using mock", keyword, e)
 
-    # Fallback: search mock data
-    from services.mock_data import MOCK_STOCKS
-    items = [
-        {'code': s['code'], 'name': s['name']}
-        for s in MOCK_STOCKS
-        if keyword in s['code'] or keyword in s['name']
-    ]
-    set_cached(cache_key, items, ttl_seconds=3600)
-    return _success(items)
+    return _error("股票搜索失败")
 
 
 @stock_bp.route('/api/stock/<code>/intraday', methods=['GET'])

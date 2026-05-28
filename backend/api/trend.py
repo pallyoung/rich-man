@@ -71,10 +71,8 @@ def _fetch_stock_hist(code: str, days: int = 120) -> pd.DataFrame:
 
         return df
     except Exception as e:
-        logger.warning("Failed to fetch history for %s: %s, using mock", code, e)
-        from services.mock_data import generate_kline
-        mock = generate_kline(code, days=days)
-        return pd.DataFrame(mock)
+        logger.warning("Failed to fetch history for %s: %s", code, e)
+        return pd.DataFrame()
 
 
 def _detect_macd_signals(df: pd.DataFrame) -> dict:
@@ -588,30 +586,70 @@ def trend_signals():
         return _success(cached)
 
     try:
-        from services.mock_data import MOCK_STOCKS, generate_trend_signals
-        # Use mock signals for now since real signal scanning would require
-        # fetching data for all stocks
-        signals = generate_trend_signals(count=20)
+        from services.stock_data import get_kline, _ensure_login
+        from services.mock_data import MOCK_STOCKS
+        from services.indicators import calculate_macd, calculate_kdj
 
-        # Normalize field names to match frontend expectations
-        normalized = []
-        for sig in signals:
-            normalized.append({
-                'stock_code': sig.get('code', ''),
-                'stock_name': sig.get('name', ''),
-                'signal_type': sig.get('signal_type', ''),
-                'signal_date': sig.get('date', ''),
-                'strength': _random_strength(sig.get('signal_type', '')),
-                'description': sig.get('description', ''),
-                'direction': sig.get('direction', ''),
-                'price': sig.get('price', 0),
-            })
+        signals = []
+        # Scan a sample of stocks for signals
+        for s in MOCK_STOCKS[:20]:
+            try:
+                df = get_kline(s['code'], period='daily')
+                if df is None or len(df) < 30:
+                    continue
 
-        set_cached(cache_key, normalized, ttl_seconds=120)
-        return _success(normalized)
+                df = calculate_macd(df)
+                df = calculate_kdj(df)
+
+                latest = df.iloc[-1]
+                prev = df.iloc[-2]
+                date_str = str(latest.get('date', ''))
+
+                # MACD golden cross
+                if (not pd.isna(latest.get('DIF')) and not pd.isna(latest.get('DEA'))
+                    and not pd.isna(prev.get('DIF')) and not pd.isna(prev.get('DEA'))):
+                    if latest['DIF'] > latest['DEA'] and prev['DIF'] <= prev['DEA']:
+                        signals.append({
+                            'stock_code': s['code'], 'stock_name': s['name'],
+                            'signal_type': 'MACD金叉', 'signal_date': date_str,
+                            'strength': 0.7, 'description': 'MACD线上穿信号线',
+                            'direction': 'buy', 'price': round(float(latest['close']), 2),
+                        })
+                    elif latest['DIF'] < latest['DEA'] and prev['DIF'] >= prev['DEA']:
+                        signals.append({
+                            'stock_code': s['code'], 'stock_name': s['name'],
+                            'signal_type': 'MACD死叉', 'signal_date': date_str,
+                            'strength': 0.7, 'description': 'MACD线下穿信号线',
+                            'direction': 'sell', 'price': round(float(latest['close']), 2),
+                        })
+
+                # KDJ golden cross
+                if (not pd.isna(latest.get('K')) and not pd.isna(latest.get('D'))
+                    and not pd.isna(prev.get('K')) and not pd.isna(prev.get('D'))):
+                    if latest['K'] > latest['D'] and prev['K'] <= prev['D']:
+                        signals.append({
+                            'stock_code': s['code'], 'stock_name': s['name'],
+                            'signal_type': 'KDJ金叉', 'signal_date': date_str,
+                            'strength': 0.55, 'description': 'K线上穿D线',
+                            'direction': 'buy', 'price': round(float(latest['close']), 2),
+                        })
+                    elif latest['K'] < latest['D'] and prev['K'] >= prev['D']:
+                        signals.append({
+                            'stock_code': s['code'], 'stock_name': s['name'],
+                            'signal_type': 'KDJ死叉', 'signal_date': date_str,
+                            'strength': 0.55, 'description': 'K线下穿D线',
+                            'direction': 'sell', 'price': round(float(latest['close']), 2),
+                        })
+            except Exception:
+                pass
+
+        # Sort by date descending
+        signals.sort(key=lambda x: x.get('signal_date', ''), reverse=True)
+        set_cached(cache_key, signals[:20], ttl_seconds=120)
+        return _success(signals[:20])
     except Exception as e:
         logger.warning("Failed to generate trend signals: %s", e)
-        return _success([])
+        return _error("暂无趋势信号数据")
 
 
 def _random_strength(signal_type):
