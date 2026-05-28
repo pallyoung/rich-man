@@ -88,32 +88,8 @@ def market_overview():
         return _success(cached)
 
     try:
-        import akshare as ak
-        df = ak.stock_zh_index_spot_em()
-
-        indices = []
-        for code, name in MAJOR_INDICES.items():
-            row = df[df['代码'] == code]
-            if row.empty:
-                row = df[df['代码'].str.contains(code)]
-            if not row.empty:
-                row = row.iloc[0]
-                indices.append({
-                    'code': code,
-                    'name': name,
-                    'price': float(row.get('最新价', 0)),
-                    'change': float(row.get('涨跌额', 0)),
-                    'change_pct': float(row.get('涨跌幅', 0)),
-                    'volume': float(row.get('成交量', 0)),
-                    'amount': float(row.get('成交额', 0)),
-                })
-            else:
-                # Fallback for missing index
-                mock = next(
-                    (m for m in MOCK_INDICES if m['code'] == code), None
-                )
-                if mock:
-                    indices.append(mock)
+        from services.stock_data import get_market_overview
+        indices = get_market_overview()
 
         if not indices:
             indices = MOCK_INDICES
@@ -122,7 +98,7 @@ def market_overview():
         return _success(indices)
 
     except Exception as e:
-        logger.warning("Failed to fetch market overview from akshare: %s", e)
+        logger.warning("Failed to fetch market overview: %s", e)
         set_cached(cache_key, MOCK_INDICES, ttl_seconds=30)
         return _success(MOCK_INDICES)
 

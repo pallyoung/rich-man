@@ -73,37 +73,13 @@ def kline_data(code):
         return _success(cached)
 
     try:
-        import akshare as ak
-        df = ak.stock_zh_a_hist(
-            symbol=code,
-            period=period,
-            start_date=start_date,
-            end_date=end_date,
-            adjust=adjust,
-        )
+        from services.stock_data import get_kline
+        df = get_kline(code, start_date=start_date, end_date=end_date,
+                       period=period, adjust=adjust)
 
         if df is None or df.empty:
             return _error(f"No K-line data found for stock {code}")
 
-        # Standardize column names
-        col_map = {
-            '日期': 'date',
-            '开盘': 'open',
-            '收盘': 'close',
-            '最高': 'high',
-            '最低': 'low',
-            '成交量': 'volume',
-            '成交额': 'amount',
-            '振幅': 'amplitude',
-            '涨跌幅': 'change_pct',
-            '涨跌额': 'change',
-            '换手率': 'turnover_rate',
-        }
-
-        available_cols = {k: v for k, v in col_map.items() if k in df.columns}
-        df = df.rename(columns=available_cols)
-
-        # Convert to list of dicts
         kline = []
         for _, row in df.iterrows():
             entry = {
@@ -155,45 +131,39 @@ def realtime_quote(code):
         return _success(cached)
 
     try:
-        import akshare as ak
-        # Use spot data for real-time quotes
-        df = ak.stock_zh_a_spot_em()
+        from services.stock_data import get_kline, get_stock_info
+        # Use baostock for latest data
+        df = get_kline(code, period='daily')
+        info = get_stock_info(code)
 
         if df is None or df.empty:
-            return _error(f"No real-time data available")
+            return _error(f"No data available for stock {code}")
 
-        row = df[df['代码'] == code]
-        if row.empty:
-            return _error(f"Stock {code} not found")
-
-        row = row.iloc[0]
+        latest = df.iloc[-1]
+        prev = df.iloc[-2] if len(df) > 1 else latest
+        price = float(latest.get('close', 0))
+        pre_close = float(prev.get('close', 0))
 
         result = {
             'code': code,
-            'name': str(row.get('名称', '')),
-            'price': _safe_float(row.get('最新价')),
-            'open': _safe_float(row.get('今开')),
-            'high': _safe_float(row.get('最高')),
-            'low': _safe_float(row.get('最低')),
-            'pre_close': _safe_float(row.get('昨收')),
-            'change': _safe_float(row.get('涨跌额')),
-            'change_pct': _safe_float(row.get('涨跌幅')),
-            'volume': _safe_float(row.get('成交量')),
-            'amount': _safe_float(row.get('成交额')),
-            'turnover_rate': _safe_float(row.get('换手率')),
-            'pe': _safe_float(row.get('市盈率-动态')),
-            'pb': _safe_float(row.get('市净率')),
-            'market_cap': _safe_float(row.get('总市值')),
-            'float_market_cap': _safe_float(row.get('流通市值')),
-            'amplitude': _safe_float(row.get('振幅')),
-            'volume_ratio': _safe_float(row.get('量比')),
-            'high_52w': _safe_float(row.get('52周最高')),
-            'low_52w': _safe_float(row.get('52周最低')),
+            'name': info.get('name', f'股票{code}'),
+            'price': round(price, 2),
+            'open': _safe_float(latest.get('open')),
+            'high': _safe_float(latest.get('high')),
+            'low': _safe_float(latest.get('low')),
+            'pre_close': round(pre_close, 2),
+            'change': round(price - pre_close, 2),
+            'change_pct': _safe_float(latest.get('change_pct')),
+            'volume': _safe_float(latest.get('volume')),
+            'amount': _safe_float(latest.get('amount')),
+            'turnover_rate': _safe_float(latest.get('turnover_rate')),
+            'pe': 0, 'pb': 0, 'market_cap': 0, 'float_market_cap': 0,
+            'amplitude': 0, 'volume_ratio': 0,
             'market': market,
             'timestamp': datetime.now().isoformat(),
         }
 
-        set_cached(cache_key, result, ttl_seconds=10)
+        set_cached(cache_key, result, ttl_seconds=30)
         return _success(result)
 
     except Exception as e:
@@ -234,13 +204,12 @@ def stock_indicators(code):
         return _success(cached)
 
     try:
-        import akshare as ak
+        from services.stock_data import get_kline
         end_date = datetime.now().strftime('%Y%m%d')
         start_date = (datetime.now() - timedelta(days=500)).strftime('%Y%m%d')
 
-        df = ak.stock_zh_a_hist(
-            symbol=code,
-            period='daily',
+        df = get_kline(
+            code=code,
             start_date=start_date,
             end_date=end_date,
             adjust='qfq',
@@ -249,19 +218,10 @@ def stock_indicators(code):
         if df is None or df.empty:
             return _error(f"No data found for stock {code}")
 
-        # Standardize column names
-        col_map = {
-            '日期': 'date',
-            '开盘': 'open',
-            '收盘': 'close',
-            '最高': 'high',
-            '最低': 'low',
-            '成交量': 'volume',
-            '成交额': 'amount',
-            '涨跌幅': 'change_pct',
-        }
-        available_cols = {k: v for k, v in col_map.items() if k in df.columns}
-        df = df.rename(columns=available_cols)
+        # Baostock already returns English column names
+        # Ensure date column exists
+        if 'date' not in df.columns and '日期' in df.columns:
+            df = df.rename(columns={'日期': 'date'})
 
         # Ensure numeric columns
         for col in ['open', 'close', 'high', 'low', 'volume']:
