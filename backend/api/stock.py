@@ -438,23 +438,34 @@ def stock_search():
         return _success(cached)
 
     try:
-        import akshare as ak
-        df = ak.stock_zh_a_spot_em()
-        if df is not None and not df.empty:
-            col_map = {'代码': 'code', '名称': 'name'}
-            available_cols = {k: v for k, v in col_map.items() if k in df.columns}
-            df = df.rename(columns=available_cols)
-            mask = (
-                df['code'].astype(str).str.contains(keyword, case=False, na=False) |
-                df['name'].astype(str).str.contains(keyword, case=False, na=False)
-            )
-            results = df[mask].head(20)
-            items = [
-                {'code': str(row['code']), 'name': str(row['name'])}
-                for _, row in results.iterrows()
-            ]
-            set_cached(cache_key, items, ttl_seconds=3600)
-            return _success(items)
+        from services.stock_data import _ensure_login
+        import baostock as bs
+        _ensure_login()
+
+        # Search by code or name using baostock stock list
+        rs = bs.query_stock_basic()
+        items = []
+        while rs.next():
+            row = rs.get_row_data()
+            # row: [code, code_name, ipoDate, outDate, type, status]
+            bs_code = row[0]  # e.g., "sh.600519"
+            name = row[1]
+            code_num = bs_code.split('.')[-1] if '.' in bs_code else bs_code
+
+            # Only include active stocks (status=1)
+            if len(row) > 5 and row[5] != '1':
+                continue
+            # Only include actual stocks (type=1)
+            if len(row) > 4 and row[4] != '1':
+                continue
+
+            if keyword.lower() in code_num or keyword in name:
+                items.append({'code': code_num, 'name': name})
+                if len(items) >= 20:
+                    break
+
+        set_cached(cache_key, items, ttl_seconds=3600)
+        return _success(items)
     except Exception as e:
         logger.warning("Stock search failed for '%s': %s, using mock", keyword, e)
 

@@ -122,69 +122,70 @@ def stock_ranking():
         return _success(cached)
 
     try:
-        import akshare as ak
-        df = ak.stock_zh_a_spot_em()
+        from services.stock_data import get_kline, get_stock_info, _ensure_login, _code_to_bs
+        from services.mock_data import MOCK_STOCKS
+        import baostock as bs
 
-        # Standardize column names
-        col_map = {
-            '代码': 'code',
-            '名称': 'name',
-            '最新价': 'price',
-            '涨跌幅': 'change_pct',
-            '涨跌额': 'change',
-            '成交量': 'volume',
-            '成交额': 'turnover',
-            '换手率': 'turnover_rate',
-            '市盈率-动态': 'pe',
-            '总市值': 'market_cap',
-            '流通市值': 'float_market_cap',
-        }
+        _ensure_login()
 
-        available_cols = {k: v for k, v in col_map.items() if k in df.columns}
-        df = df.rename(columns=available_cols)
-
-        # Remove ST stocks and stocks with no price
-        df = df[df['price'].notna() & (df['price'] > 0)]
+        # Get latest data for a pool of well-known stocks
+        stocks = []
+        for s in MOCK_STOCKS:
+            code = s['code']
+            try:
+                bs_code = _code_to_bs(code)
+                from datetime import datetime, timedelta
+                end_date = datetime.now().strftime('%Y-%m-%d')
+                start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
+                rs = bs.query_history_k_data_plus(
+                    bs_code, "date,close,high,low,volume,amount,pctChg,turn",
+                    start_date=start_date, end_date=end_date,
+                    frequency="d", adjustflag="2"
+                )
+                rows = []
+                while rs.next():
+                    rows.append(rs.get_row_data())
+                if rows:
+                    latest = rows[-1]
+                    prev = rows[-2] if len(rows) > 1 else latest
+                    price = _safe_float(latest[1])
+                    prev_close = _safe_float(prev[1])
+                    change = round(price - prev_close, 2) if prev_close else 0
+                    change_pct = _safe_float(latest[6])
+                    stocks.append({
+                        'code': code,
+                        'name': s['name'],
+                        'price': price,
+                        'change': change,
+                        'change_pct': change_pct,
+                        'volume': _safe_float(latest[4]),
+                        'turnover': _safe_float(latest[5]),
+                        'turnover_rate': _safe_float(latest[7]),
+                        'pe': 0,
+                        'market_cap': 0,
+                    })
+            except Exception:
+                pass
 
         # Sort by ranking type
         if rank_type == 'rise':
-            df = df.sort_values('change_pct', ascending=False)
+            stocks.sort(key=lambda x: x.get('change_pct', 0), reverse=True)
         elif rank_type == 'fall':
-            df = df.sort_values('change_pct', ascending=True)
+            stocks.sort(key=lambda x: x.get('change_pct', 0))
         elif rank_type == 'turnover':
-            if 'turnover' in df.columns:
-                df = df.sort_values('turnover', ascending=False)
+            stocks.sort(key=lambda x: x.get('turnover', 0), reverse=True)
         elif rank_type == 'volume':
-            if 'volume' in df.columns:
-                df = df.sort_values('volume', ascending=False)
+            stocks.sort(key=lambda x: x.get('volume', 0), reverse=True)
 
-        # Paginate
-        total = len(df)
+        total = len(stocks)
         start = (page - 1) * page_size
         end = start + page_size
-        page_df = df.iloc[start:end]
-
-        stocks = []
-        for _, row in page_df.iterrows():
-            stock = {
-                'code': str(row.get('code', '')),
-                'name': str(row.get('name', '')),
-                'price': _safe_float(row.get('price')),
-                'change': _safe_float(row.get('change')),
-                'change_pct': _safe_float(row.get('change_pct')),
-                'volume': _safe_float(row.get('volume')),
-                'turnover': _safe_float(row.get('turnover')),
-                'turnover_rate': _safe_float(row.get('turnover_rate')),
-                'pe': _safe_float(row.get('pe')),
-                'market_cap': _safe_float(row.get('market_cap')),
-            }
-            stocks.append(stock)
 
         result = {
             'total': total,
             'page': page,
             'page_size': page_size,
-            'stocks': stocks,
+            'stocks': stocks[start:end],
         }
 
         set_cached(cache_key, result, ttl_seconds=60)
