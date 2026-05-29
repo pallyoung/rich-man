@@ -1,23 +1,45 @@
 import React, { useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 
+interface FearGreedFactor {
+  score: number;
+  weight: number;
+  label: string;
+}
+
 interface SentimentGaugeProps {
   value?: number;
+  label?: string;
+  factors?: Record<string, FearGreedFactor>;
   height?: number;
   theme?: 'dark' | 'light';
 }
 
-export default function SentimentGauge({ value = 50, height = 260, theme: themeMode = 'dark' }: SentimentGaugeProps) {
+function getSentimentLabel(value: number): string {
+  if (value <= 20) return '极度恐惧';
+  if (value <= 35) return '恐惧';
+  if (value <= 45) return '偏恐惧';
+  if (value <= 55) return '中性';
+  if (value <= 65) return '偏贪婪';
+  if (value <= 80) return '贪婪';
+  return '极度贪婪';
+}
+
+function getFactorColor(score: number): string {
+  if (score <= 30) return '#f85149';
+  if (score <= 70) return '#e6c73a';
+  return '#3fb950';
+}
+
+export default function SentimentGauge({ value = 50, label, factors, height = 260, theme: themeMode = 'dark' }: SentimentGaugeProps) {
+  const sentimentLabel = label || getSentimentLabel(value);
+
+  const factorList = factors
+    ? Object.values(factors).sort((a, b) => b.weight - a.weight)
+    : [];
+
   const option = useMemo(() => {
     const textColor = themeMode === 'dark' ? '#e6edf3' : '#1f1f1f';
-
-    let sentimentLabel = '中性';
-    if (value <= 20) sentimentLabel = '极度恐惧';
-    else if (value <= 30) sentimentLabel = '恐惧';
-    else if (value <= 50) sentimentLabel = '偏恐惧';
-    else if (value <= 70) sentimentLabel = '偏贪婪';
-    else if (value <= 80) sentimentLabel = '贪婪';
-    else sentimentLabel = '极度贪婪';
 
     return {
       backgroundColor: 'transparent',
@@ -92,7 +114,25 @@ export default function SentimentGauge({ value = 50, height = 260, theme: themeM
         },
       ],
     };
-  }, [value, themeMode]);
+  }, [value, sentimentLabel, themeMode]);
 
-  return <ReactECharts option={option} style={{ height, width: '100%' }} />;
+  return (
+    <div>
+      <ReactECharts option={option} style={{ height: factorList.length > 0 ? height - 60 : height, width: '100%' }} />
+      {factorList.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 24, padding: '4px 16px 8px', flexWrap: 'wrap' }}>
+          {factorList.map((f) => (
+            <div key={f.label} style={{ textAlign: 'center', minWidth: 80 }}>
+              <div style={{ fontSize: 11, color: themeMode === 'dark' ? '#8b949e' : '#666', marginBottom: 2 }}>
+                {f.label}
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: getFactorColor(f.score) }}>
+                {f.score}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }

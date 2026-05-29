@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 
 import pandas as pd
+import requests
 from flask import Blueprint, request, jsonify
 
 from services.cache import get_cached, set_cached
@@ -73,6 +74,126 @@ def _success(data, message="success"):
 def _error(message, code=-1):
     """Create an error response."""
     return jsonify({"code": code, "data": None, "message": message})
+
+
+
+def _fetch_market_breadth() -> dict:
+    """Fetch real-time A-share market breadth from East Money.
+
+    Returns dict with up_count, down_count, flat_count from the
+    Shanghai and Shenzhen markets combined. Falls back to empty dict
+    on failure.
+    """
+    try:
+        url = "https://push2.eastmoney.com/api/qt/ulist.np/get"
+        # secids: 1.000001 = Shanghai composite, 0.399001 = Shenzhen component
+        # f104 = up count, f105 = down count, f106 = flat count
+        params = {
+            'fltt': '2',
+            'secids': '1.000001,0.399001',
+            'fields': 'f104,f105,f106',
+        }
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                          'AppleWebKit/537.36 (KHTML, like Gecko) '
+                          'Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://quote.eastmoney.com/',
+        }
+        resp = requests.get(url, params=params, headers=headers, timeout=8)
+        resp.raise_for_status()
+        data = resp.json()
+
+        diff = data.get('data', {}).get('diff', [])
+        if not diff:
+            return {}
+
+        # Sum up counts from both markets
+        up_total = sum(item.get('f104', 0) for item in diff if item.get('f104'))
+        down_total = sum(item.get('f105', 0) for item in diff if item.get('f105'))
+        flat_total = sum(item.get('f106', 0) for item in diff if item.get('f106'))
+
+        if up_total + down_total + flat_total == 0:
+            return {}
+
+        return {
+            'up_count': up_total,
+            'down_count': down_total,
+            'flat_count': flat_total,
+        }
+    except Exception as e:
+        logger.warning("Failed to fetch market breadth from East Money: %s", e)
+        return {}
+
+
+
+def _compute_fear_greed(up_count: int, down_count: int, flat_count: int,
+                         indices: list = None) -> dict:
+    """Compute a multi-factor Fear & Greed Index.
+
+    Factors:
+        1. Market breadth (up/down ratio) - 40% weight
+        2. Index momentum (avg change % of major indices) - 35% weight
+        3. Advance/decline strength (extreme moves ratio) - 25% weight
+
+    Returns dict with score (0-100), label, and factor breakdown.
+    0 = extreme fear, 50 = neutral, 100 = extreme greed.
+    """
+    total = up_count + down_count + flat_count
+
+    # Factor 1: Market breadth (up ratio mapped to 0-100)
+    breadth_ratio = (up_count / total * 100) if total > 0 else 50.0
+
+    # Factor 2: Index momentum
+    momentum_score = 50.0
+    if indices:
+        changes = [idx.get('change_pct', 0) for idx in indices if idx.get('change_pct') is not None]
+        if changes:
+            avg_change = sum(changes) / len(changes)
+            # Map: -3% -> 10, 0% -> 50, +3% -> 90
+            momentum_score = max(0, min(100, 50 + avg_change * 13.3))
+
+    # Factor 3: Advance/decline strength
+    # Measures how lopsided the market is
+    strength_score = 50.0
+    if total > 0:
+        # Strong advance: many more up than down
+        # Strong decline: many more down than up
+        imbalance = (up_count - down_count) / total * 100
+        # Map: -100% -> 0, 0% -> 50, +100% -> 100
+        strength_score = max(0, min(100, 50 + imbalance * 0.5))
+
+    # Weighted composite
+    score = round(breadth_ratio * 0.40 + momentum_score * 0.35 + strength_score * 0.25, 1)
+    score = max(0, min(100, score))
+
+    # Label
+    if score <= 20:
+        label = '极度恐惧'
+    elif score <= 35:
+        label = '恐惧'
+    elif score <= 45:
+        label = '偏恐惧'
+    elif score <= 55:
+        label = '中性'
+    elif score <= 65:
+        label = '偏贪婪'
+    elif score <= 80:
+        label = '贪婪'
+    else:
+        label = '极度贪婪'
+
+    return {
+        'score': score,
+        'label': label,
+        'factors': {
+            'breadth': {'score': round(breadth_ratio, 1), 'weight': 0.40,
+                        'label': '涨跌比'},
+            'momentum': {'score': round(momentum_score, 1), 'weight': 0.35,
+                         'label': '指数动量'},
+            'strength': {'score': round(strength_score, 1), 'weight': 0.25,
+                         'label': '涨跌强度'},
+        },
+    }
 
 
 @market_bp.route('/api/market/overview', methods=['GET'])
@@ -284,59 +405,135 @@ def _safe_float(value, default=0.0):
 
 @market_bp.route('/api/market/updown_stats', methods=['GET'])
 def market_updown_stats():
-    """Get market up/down/flat stock counts and sentiment."""
+    """Get market up/down/flat stock counts and sentiment.
+
+    Uses real-time East Money data for full A-share market breadth.
+    Falls back to baostock sample data if East Money is unavailable.
+    """
     cache_key = 'market_updown_stats'
     cached = get_cached(cache_key, max_age_seconds=60)
     if cached is not None:
         return _success(cached)
 
+    # Try real-time East Money market breadth first
+    breadth = _fetch_market_breadth()
+    if breadth:
+        up_count = breadth['up_count']
+        down_count = breadth['down_count']
+        flat_count = breadth['flat_count']
+    else:
+        # Fallback: sample from baostock using MOCK_STOCKS
+        try:
+            from services.stock_data import bs_query, _code_to_bs
+            from services.mock_data import MOCK_STOCKS
+            import baostock as bs
+            from datetime import timedelta
+
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
+
+            up_count = 0
+            down_count = 0
+            flat_count = 0
+
+            for s in MOCK_STOCKS:
+                try:
+                    bs_code = _code_to_bs(s['code'])
+                    rows = bs_query(
+                        bs.query_history_k_data_plus,
+                        bs_code, "date,pctChg",
+                        start_date=start_date, end_date=end_date,
+                        frequency="d", adjustflag="2",
+                    )
+                    if rows:
+                        change = float(rows[-1][1]) if rows[-1][1] else 0
+                        if change > 0:
+                            up_count += 1
+                        elif change < 0:
+                            down_count += 1
+                        else:
+                            flat_count += 1
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning("Failed to fetch updown stats from baostock: %s", e)
+            return _error("暂无涨跌统计数据")
+
+    # Get index data for momentum factor
+    indices = []
     try:
-        from services.stock_data import bs_query, _code_to_bs
-        from services.mock_data import MOCK_STOCKS
-        import baostock as bs
-        from datetime import datetime, timedelta
+        from services.stock_data import get_market_overview
+        indices = get_market_overview() or []
+    except Exception:
+        pass
 
-        end_date = datetime.now().strftime('%Y-%m-%d')
-        start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
+    # Compute multi-factor fear & greed index
+    fg = _compute_fear_greed(up_count, down_count, flat_count, indices)
 
-        up_count = 0
-        down_count = 0
-        flat_count = 0
+    result = {
+        'up_count': up_count,
+        'down_count': down_count,
+        'flat_count': flat_count,
+        'sentiment': fg['score'],
+        'sentiment_label': fg['label'],
+        'factors': fg['factors'],
+        'source': 'eastmoney' if breadth else 'baostock_sample',
+    }
+    set_cached(cache_key, result, ttl_seconds=120)
+    return _success(result)
 
-        for s in MOCK_STOCKS:
-            try:
-                bs_code = _code_to_bs(s['code'])
-                rows = bs_query(
-                    bs.query_history_k_data_plus,
-                    bs_code, "date,pctChg",
-                    start_date=start_date, end_date=end_date,
-                    frequency="d", adjustflag="2",
-                )
-                if rows:
-                    change = float(rows[-1][1]) if rows[-1][1] else 0
-                    if change > 0:
-                        up_count += 1
-                    elif change < 0:
-                        down_count += 1
-                    else:
-                        flat_count += 1
-            except Exception:
-                pass
 
-        total = up_count + down_count + flat_count
-        sentiment = round((up_count / total) * 100, 1) if total > 0 else 50.0
 
-        result = {
+@market_bp.route('/api/market/fear_greed', methods=['GET'])
+def fear_greed_index():
+    """Get detailed Fear & Greed Index with factor breakdown.
+
+    Returns composite score (0-100) and individual factor scores:
+    - breadth: market up/down ratio
+    - momentum: major index average change %
+    - strength: advance/decline imbalance
+    """
+    cache_key = 'market_fear_greed'
+    cached = get_cached(cache_key, max_age_seconds=60)
+    if cached is not None:
+        return _success(cached)
+
+    # Get market breadth
+    breadth = _fetch_market_breadth()
+    if not breadth:
+        # Fallback to updown_stats cache
+        ud_cached = get_cached('market_updown_stats', max_age_seconds=120)
+        if ud_cached:
+            breadth = ud_cached
+        else:
+            return _error('暂无市场数据')
+
+    up_count = breadth.get('up_count', 0)
+    down_count = breadth.get('down_count', 0)
+    flat_count = breadth.get('flat_count', 0)
+
+    # Get index momentum
+    indices = []
+    try:
+        from services.stock_data import get_market_overview
+        indices = get_market_overview() or []
+    except Exception:
+        pass
+
+    fg = _compute_fear_greed(up_count, down_count, flat_count, indices)
+
+    result = {
+        'score': fg['score'],
+        'label': fg['label'],
+        'factors': fg['factors'],
+        'market_breadth': {
             'up_count': up_count,
             'down_count': down_count,
             'flat_count': flat_count,
-            'sentiment': sentiment,
-        }
-        set_cached(cache_key, result, ttl_seconds=120)
-        return _success(result)
-    except Exception as e:
-        logger.warning("Failed to fetch updown stats: %s", e)
-        return _error("暂无涨跌统计数据")
+        },
+        'indices': [{'name': i.get('name'), 'change_pct': i.get('change_pct')} for i in indices],
+    }
+    set_cached(cache_key, result, ttl_seconds=120)
     return _success(result)
 
 

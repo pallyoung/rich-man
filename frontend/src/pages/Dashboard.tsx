@@ -60,6 +60,8 @@ export default function Dashboard({ isDark }: DashboardProps) {
   const upDownOption = buildUpDownChart(overview, isDark);
   const sectorBarOption = buildSectorBarChart(sectors, isDark);
   const sentimentValue = overview?.sentiment ?? 50;
+  const sentimentLabel = overview?.sentiment_label as string | undefined;
+  const sentimentFactors = overview?.factors as Record<string, { score: number; weight: number; label: string }> | undefined;
 
   const signalColumns: TableColumnsType<SignalData> = [
     { title: '股票代码', dataIndex: 'stock_code', key: 'stock_code' },
@@ -133,7 +135,7 @@ export default function Dashboard({ isDark }: DashboardProps) {
           </Col>
           <Col xs={24} lg={10}>
             <Card title="市场情绪" styles={{ body: { padding: '0 16px' } }}>
-              <SentimentGauge value={sentimentValue} theme={isDark ? 'dark' : 'light'} />
+              <SentimentGauge value={sentimentValue} label={sentimentLabel} factors={sentimentFactors} theme={isDark ? 'dark' : 'light'} />
             </Card>
           </Col>
         </Row>
