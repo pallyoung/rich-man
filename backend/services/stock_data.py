@@ -234,11 +234,23 @@ def get_market_overview() -> list:
 
     # --- Strategy 1: akshare real-time spot data (intraday) ----------------
     result = _get_realtime_index_spot()
-    if result:
-        return result
 
-    # --- Strategy 2: baostock end-of-day data (fallback) -------------------
-    return _get_baostock_index_eod(indices)
+    # --- Strategy 2: baostock end-of-day data (fill gaps / full fallback) --
+    expected_codes = {code for _, code, _ in indices}
+    got_codes = {r['code'] for r in result}
+    missing = expected_codes - got_codes
+    if missing:
+        eod = _get_baostock_index_eod(indices)
+        # Add any indices we're still missing after baostock
+        eod_got = {r['code'] for r in eod}
+        for r in eod:
+            if r['code'] in missing:
+                result.append(r)
+        # If nothing was fetched at all, pure baostock fallback
+        if not result:
+            result = eod
+
+    return result
 
 
 def _get_realtime_index_spot() -> list:
