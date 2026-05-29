@@ -409,11 +409,9 @@ def sector_rotation():
         return _success(cached)
 
     try:
-        from services.stock_data import bs_query, _code_to_bs, _safe_float as bs_safe_float
+        from services.stock_data import get_a_shares_realtime_batch, bs_query, _code_to_bs
         from services.mock_data import MOCK_STOCKS
-        import baostock as bs
         from collections import defaultdict
-        from datetime import datetime, timedelta
 
         # Get industry classification from baostock
         industry_rows = bs_query(bs.query_stock_industry)
@@ -424,31 +422,57 @@ def sector_rotation():
             if industry_name:
                 industry_map[code_num] = industry_name
 
-        end_date = datetime.now().strftime('%Y-%m-%d')
-        start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
-
         industry_data = defaultdict(lambda: {'stocks': [], 'up': 0, 'down': 0, 'total_change': 0})
-        sample = MOCK_STOCKS[:15]
-        for s in sample:
-            code = s['code']
-            industry = industry_map.get(code, '其他')
-            try:
-                bs_code = _code_to_bs(code)
-                rows = bs_query(
-                    bs.query_history_k_data_plus,
-                    bs_code, "date,close,pctChg",
-                    start_date=start_date, end_date=end_date,
-                    frequency="d", adjustflag="2",
-                )
-                if rows:
-                    latest = rows[-1]
-                    change_pct = bs_safe_float(latest[2])
-                    industry_data[industry]['stocks'].append({'code': code, 'name': s['name'], 'change_pct': change_pct})
-                    industry_data[industry]['total_change'] += change_pct
-                    if change_pct > 0: industry_data[industry]['up'] += 1
-                    elif change_pct < 0: industry_data[industry]['down'] += 1
-            except Exception:
-                pass
+
+        # Strategy 1: akshare batch API
+        df = get_a_shares_realtime_batch()
+        if not df.empty and 'code' in df.columns:
+            mock_codes = {s['code'] for s in MOCK_STOCKS}
+            mock_info = {s['code']: s for s in MOCK_STOCKS}
+            df_pool = df[df['code'].isin(mock_codes)]
+
+            for _, row in df_pool.iterrows():
+                code = str(row.get('code', ''))
+                industry = industry_map.get(code, mock_info.get(code, {}).get('industry', '其他'))
+                change_pct = _safe_float(row.get('change_pct'))
+                industry_data[industry]['stocks'].append({
+                    'code': code,
+                    'name': str(row.get('name', mock_info.get(code, {}).get('name', ''))),
+                    'change_pct': change_pct,
+                })
+                industry_data[industry]['total_change'] += change_pct
+                if change_pct > 0:
+                    industry_data[industry]['up'] += 1
+                elif change_pct < 0:
+                    industry_data[industry]['down'] += 1
+        else:
+            # Strategy 2: baostock fallback
+            import baostock as bs
+            from datetime import datetime, timedelta
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
+
+            sample = MOCK_STOCKS[:15]
+            for s in sample:
+                code = s['code']
+                industry = industry_map.get(code, '其他')
+                try:
+                    bs_code = _code_to_bs(code)
+                    rows = bs_query(
+                        bs.query_history_k_data_plus,
+                        bs_code, "date,close,pctChg",
+                        start_date=start_date, end_date=end_date,
+                        frequency="d", adjustflag="2",
+                    )
+                    if rows:
+                        latest = rows[-1]
+                        change_pct = _safe_float(latest[2])
+                        industry_data[industry]['stocks'].append({'code': code, 'name': s['name'], 'change_pct': change_pct})
+                        industry_data[industry]['total_change'] += change_pct
+                        if change_pct > 0: industry_data[industry]['up'] += 1
+                        elif change_pct < 0: industry_data[industry]['down'] += 1
+                except Exception:
+                    pass
 
         # Build a fake df-like structure for the existing logic below
         import pandas as pd

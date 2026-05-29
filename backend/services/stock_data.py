@@ -406,3 +406,55 @@ def logout():
         if _logged_in:
             bs.logout()
             _logged_in = False
+
+
+def get_a_shares_realtime_batch() -> pd.DataFrame:
+    """Fetch real-time quotes for ALL A-shares in a single HTTP call.
+
+    Uses akshare ``stock_zh_a_spot_em`` (East Money push API) which returns
+    ~5000 stocks in one request, avoiding the N×baostock-query pattern that
+    serializes under the global lock.
+
+    Returns a DataFrame with normalized English column names, or an empty
+    DataFrame on failure.
+    """
+    try:
+        import akshare as ak
+        df = ak.stock_zh_a_spot_em()
+        if df is None or df.empty:
+            return pd.DataFrame()
+
+        col_map = {
+            '代码': 'code',
+            '名称': 'name',
+            '最新价': 'price',
+            '涨跌幅': 'change_pct',
+            '涨跌额': 'change',
+            '成交量': 'volume',
+            '成交额': 'amount',
+            '振幅': 'amplitude',
+            '最高': 'high',
+            '最低': 'low',
+            '今开': 'open',
+            '昨收': 'pre_close',
+            '量比': 'volume_ratio',
+            '换手率': 'turnover_rate',
+            '市盈率-动态': 'pe',
+            '市净率': 'pb',
+            '总市值': 'market_cap',
+            '流通市值': 'float_market_cap',
+        }
+        df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+
+        for col in ['price', 'change_pct', 'change', 'volume', 'amount',
+                     'amplitude', 'high', 'low', 'open', 'pre_close',
+                     'turnover_rate', 'pe', 'pb', 'market_cap', 'float_market_cap']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        logger.info("Fetched %d A-share realtime quotes via akshare", len(df))
+        return df
+
+    except Exception as e:
+        logger.warning("akshare stock_zh_a_spot_em failed: %s", e)
+        return pd.DataFrame()

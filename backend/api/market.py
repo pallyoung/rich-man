@@ -237,74 +237,80 @@ def stock_ranking():
     page_size = int(request.args.get('page_size', 20))
 
     cache_key = f'market_ranking_{rank_type}_{page}_{page_size}'
-    cached = get_cached(cache_key, max_age_seconds=60)
+    cached = get_cached(cache_key, max_age_seconds=120)
     if cached is not None:
         return _success(cached)
 
     try:
-        from services.stock_data import bs_query, _code_to_bs
+        from services.stock_data import get_a_shares_realtime_batch
         from services.mock_data import MOCK_STOCKS
-        import baostock as bs
 
-        # Get latest data for a pool of well-known stocks
-        stocks = []
-        for s in MOCK_STOCKS:
-            code = s['code']
-            try:
-                bs_code = _code_to_bs(code)
-                from datetime import datetime, timedelta
-                end_date = datetime.now().strftime('%Y-%m-%d')
-                start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
-                rows = bs_query(
-                    bs.query_history_k_data_plus,
-                    bs_code, "date,close,high,low,volume,amount,pctChg,turn",
-                    start_date=start_date, end_date=end_date,
-                    frequency="d", adjustflag="2",
-                )
-                if rows:
-                    latest = rows[-1]
-                    prev = rows[-2] if len(rows) > 1 else latest
-                    price = _safe_float(latest[1])
-                    prev_close = _safe_float(prev[1])
-                    change = round(price - prev_close, 2) if prev_close else 0
-                    change_pct = _safe_float(latest[6])
-                    stocks.append({
-                        'code': code,
-                        'name': s['name'],
-                        'price': price,
-                        'change': change,
-                        'change_pct': change_pct,
-                        'volume': _safe_float(latest[4]),
-                        'turnover': _safe_float(latest[5]),
-                        'turnover_rate': _safe_float(latest[7]),
-                        'pe': 0,
-                        'market_cap': 0,
-                    })
-            except Exception:
-                pass
+        # Strategy 1: akshare batch API (single HTTP call, ~1-2s for all A-shares)
+        df = get_a_shares_realtime_batch()
+        if not df.empty and 'code' in df.columns:
+            mock_codes = {s['code'] for s in MOCK_STOCKS}
+            mock_info = {s['code']: s for s in MOCK_STOCKS}
+            df_pool = df[df['code'].isin(mock_codes)].copy()
 
-        # Sort by ranking type
-        if rank_type == 'rise':
-            stocks.sort(key=lambda x: x.get('change_pct', 0), reverse=True)
-        elif rank_type == 'fall':
-            stocks.sort(key=lambda x: x.get('change_pct', 0))
-        elif rank_type == 'turnover':
-            stocks.sort(key=lambda x: x.get('turnover', 0), reverse=True)
-        elif rank_type == 'volume':
-            stocks.sort(key=lambda x: x.get('volume', 0), reverse=True)
+            stocks = []
+            for _, row in df_pool.iterrows():
+                code = str(row.get('code', ''))
+                info = mock_info.get(code, {})
+                turnover_val = _safe_float(row.get('amount'))
+                stocks.append({
+                    'code': code,
+                    'name': str(row.get('name', info.get('name', ''))),
+                    'price': _safe_float(row.get('price')),
+                    'change': _safe_float(row.get('change')),
+                    'change_pct': _safe_float(row.get('change_pct')),
+                    'volume': _safe_float(row.get('volume')),
+                    'turnover': turnover_val,
+                    'turnover_rate': _safe_float(row.get('turnover_rate')),
+                    'pe': _safe_float(row.get('pe')),
+                    'market_cap': _safe_float(row.get('market_cap')),
+                })
+        else:
+            # Strategy 2: Fallback to baostock (serial, slower)
+            from services.stock_data import bs_query, _code_to_bs
+            import baostock as bs
 
-        total = len(stocks)
-        start = (page - 1) * page_size
-        end = start + page_size
+            stocks = []
+            for s in MOCK_STOCKS:
+                code = s['code']
+                try:
+                    bs_code = _code_to_bs(code)
+                    from datetime import datetime, timedelta
+                    end_date = datetime.now().strftime('%Y-%m-%d')
+                    start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
+                    rows = bs_query(
+                        bs.query_history_k_data_plus,
+                        bs_code, "date,close,high,low,volume,amount,pctChg,turn",
+                        start_date=start_date, end_date=end_date,
+                        frequency="d", adjustflag="2",
+                    )
+                    if rows:
+                        latest = rows[-1]
+                        prev = rows[-2] if len(rows) > 1 else latest
+                        price = _safe_float(latest[1])
+                        prev_close = _safe_float(prev[1])
+                        change = round(price - prev_close, 2) if prev_close else 0
+                        change_pct = _safe_float(latest[6])
+                        stocks.append({
+                            'code': code,
+                            'name': s['name'],
+                            'price': price,
+                            'change': change,
+                            'change_pct': change_pct,
+                            'volume': _safe_float(latest[4]),
+                            'turnover': _safe_float(latest[5]),
+                            'turnover_rate': _safe_float(latest[7]),
+                            'pe': 0,
+                            'market_cap': 0,
+                        })
+                except Exception:
+                    pass
 
-        result = {
-            'total': total,
-            'page': page,
-            'page_size': page_size,
-            'stocks': stocks[start:end],
-        }
 
-        set_cached(cache_key, result, ttl_seconds=60)
         return _success(result)
 
     except Exception as e:
@@ -318,7 +324,7 @@ def stock_ranking():
 def limit_up():
     """Get stocks that hit the daily limit-up (涨停板)."""
     cache_key = 'market_limit_up'
-    cached = get_cached(cache_key, max_age_seconds=60)
+    cached = get_cached(cache_key, max_age_seconds=120)
     if cached is not None:
         return _success(cached)
 
@@ -357,7 +363,7 @@ def limit_up():
 def limit_down():
     """Get stocks that hit the daily limit-down (跌停板)."""
     cache_key = 'market_limit_down'
-    cached = get_cached(cache_key, max_age_seconds=60)
+    cached = get_cached(cache_key, max_age_seconds=120)
     if cached is not None:
         return _success(cached)
 
@@ -411,7 +417,7 @@ def market_updown_stats():
     Falls back to baostock sample data if East Money is unavailable.
     """
     cache_key = 'market_updown_stats'
-    cached = get_cached(cache_key, max_age_seconds=60)
+    cached = get_cached(cache_key, max_age_seconds=120)
     if cached is not None:
         return _success(cached)
 
@@ -422,41 +428,49 @@ def market_updown_stats():
         down_count = breadth['down_count']
         flat_count = breadth['flat_count']
     else:
-        # Fallback: sample from baostock using MOCK_STOCKS
+        # Fallback: use akshare batch data
         try:
-            from services.stock_data import bs_query, _code_to_bs
+            from services.stock_data import get_a_shares_realtime_batch
             from services.mock_data import MOCK_STOCKS
-            import baostock as bs
-            from datetime import timedelta
 
-            end_date = datetime.now().strftime('%Y-%m-%d')
-            start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
+            df = get_a_shares_realtime_batch()
+            if not df.empty and 'change_pct' in df.columns:
+                mock_codes = {s['code'] for s in MOCK_STOCKS}
+                df_pool = df[df['code'].isin(mock_codes)]
+                up_count = int((df_pool['change_pct'] > 0).sum())
+                down_count = int((df_pool['change_pct'] < 0).sum())
+                flat_count = int((df_pool['change_pct'] == 0).sum())
+            else:
+                # Last resort: baostock serial fallback
+                from services.stock_data import bs_query, _code_to_bs
+                import baostock as bs
+                from datetime import timedelta
 
-            up_count = 0
-            down_count = 0
-            flat_count = 0
+                end_date = datetime.now().strftime('%Y-%m-%d')
+                start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
+                up_count = down_count = flat_count = 0
 
-            for s in MOCK_STOCKS:
-                try:
-                    bs_code = _code_to_bs(s['code'])
-                    rows = bs_query(
-                        bs.query_history_k_data_plus,
-                        bs_code, "date,pctChg",
-                        start_date=start_date, end_date=end_date,
-                        frequency="d", adjustflag="2",
-                    )
-                    if rows:
-                        change = float(rows[-1][1]) if rows[-1][1] else 0
-                        if change > 0:
-                            up_count += 1
-                        elif change < 0:
-                            down_count += 1
-                        else:
-                            flat_count += 1
-                except Exception:
-                    pass
+                for s in MOCK_STOCKS:
+                    try:
+                        bs_code = _code_to_bs(s['code'])
+                        rows = bs_query(
+                            bs.query_history_k_data_plus,
+                            bs_code, "date,pctChg",
+                            start_date=start_date, end_date=end_date,
+                            frequency="d", adjustflag="2",
+                        )
+                        if rows:
+                            change = float(rows[-1][1]) if rows[-1][1] else 0
+                            if change > 0:
+                                up_count += 1
+                            elif change < 0:
+                                down_count += 1
+                            else:
+                                flat_count += 1
+                    except Exception:
+                        pass
         except Exception as e:
-            logger.warning("Failed to fetch updown stats from baostock: %s", e)
+            logger.warning("Failed to fetch updown stats: %s", e)
             return _error("暂无涨跌统计数据")
 
     # Get index data for momentum factor
@@ -494,7 +508,7 @@ def fear_greed_index():
     - strength: advance/decline imbalance
     """
     cache_key = 'market_fear_greed'
-    cached = get_cached(cache_key, max_age_seconds=60)
+    cached = get_cached(cache_key, max_age_seconds=120)
     if cached is not None:
         return _success(cached)
 
@@ -546,13 +560,12 @@ def market_sectors():
         return _success(cached)
 
     try:
-        from services.stock_data import bs_query, _code_to_bs, _safe_float as bs_safe_float
+        from services.stock_data import get_a_shares_realtime_batch, bs_query, _code_to_bs
         from services.mock_data import MOCK_STOCKS
         import baostock as bs
         from collections import defaultdict
-        from datetime import datetime, timedelta
 
-        # Get industry classification from baostock
+        # Get industry classification from baostock (single query, cached well)
         industry_rows = bs_query(bs.query_stock_industry)
         industry_map = {}
         for row in industry_rows:
@@ -561,40 +574,63 @@ def market_sectors():
             if industry_name:
                 industry_map[code_num] = industry_name
 
-        # Get latest data for a small representative stock sample
-        end_date = datetime.now().strftime('%Y-%m-%d')
-        start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
-
+        # Strategy 1: Use akshare batch data for realtime prices
+        df = get_a_shares_realtime_batch()
         industry_data = defaultdict(lambda: {'stocks': [], 'up': 0, 'down': 0, 'total_change': 0})
 
-        # Use a smaller sample for speed (first 15 stocks from MOCK_STOCKS)
-        sample = MOCK_STOCKS[:15]
-        for s in sample:
-            code = s['code']
-            industry = industry_map.get(code, '其他')
-            try:
-                bs_code = _code_to_bs(code)
-                rows = bs_query(
-                    bs.query_history_k_data_plus,
-                    bs_code, "date,close,pctChg",
-                    start_date=start_date, end_date=end_date,
-                    frequency="d", adjustflag="2",
-                )
-                if rows:
-                    latest = rows[-1]
-                    change_pct = bs_safe_float(latest[2])
-                    price = bs_safe_float(latest[1])
-                    industry_data[industry]['stocks'].append({
-                        'code': code, 'name': s['name'],
-                        'price': price, 'change_pct': change_pct,
-                    })
-                    industry_data[industry]['total_change'] += change_pct
-                    if change_pct > 0:
-                        industry_data[industry]['up'] += 1
-                    elif change_pct < 0:
-                        industry_data[industry]['down'] += 1
-            except Exception:
-                pass
+        if not df.empty and 'code' in df.columns:
+            mock_codes = {s['code'] for s in MOCK_STOCKS}
+            mock_info = {s['code']: s for s in MOCK_STOCKS}
+            df_pool = df[df['code'].isin(mock_codes)]
+
+            for _, row in df_pool.iterrows():
+                code = str(row.get('code', ''))
+                industry = industry_map.get(code, mock_info.get(code, {}).get('industry', '其他'))
+                change_pct = _safe_float(row.get('change_pct'))
+                industry_data[industry]['stocks'].append({
+                    'code': code,
+                    'name': str(row.get('name', mock_info.get(code, {}).get('name', ''))),
+                    'price': _safe_float(row.get('price')),
+                    'change_pct': change_pct,
+                })
+                industry_data[industry]['total_change'] += change_pct
+                if change_pct > 0:
+                    industry_data[industry]['up'] += 1
+                elif change_pct < 0:
+                    industry_data[industry]['down'] += 1
+        else:
+            # Strategy 2: Fallback to baostock (serial, slower)
+            from datetime import datetime, timedelta
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
+
+            sample = MOCK_STOCKS[:15]
+            for s in sample:
+                code = s['code']
+                industry = industry_map.get(code, '其他')
+                try:
+                    bs_code = _code_to_bs(code)
+                    rows = bs_query(
+                        bs.query_history_k_data_plus,
+                        bs_code, "date,close,pctChg",
+                        start_date=start_date, end_date=end_date,
+                        frequency="d", adjustflag="2",
+                    )
+                    if rows:
+                        latest = rows[-1]
+                        change_pct = _safe_float(latest[2])
+                        price = _safe_float(latest[1])
+                        industry_data[industry]['stocks'].append({
+                            'code': code, 'name': s['name'],
+                            'price': price, 'change_pct': change_pct,
+                        })
+                        industry_data[industry]['total_change'] += change_pct
+                        if change_pct > 0:
+                            industry_data[industry]['up'] += 1
+                        elif change_pct < 0:
+                            industry_data[industry]['down'] += 1
+                except Exception:
+                    pass
 
         # Build sector list
         sectors = []
