@@ -409,19 +409,16 @@ def sector_rotation():
         return _success(cached)
 
     try:
-        from services.stock_data import _ensure_login, _code_to_bs, _safe_float as bs_safe_float
+        from services.stock_data import bs_query, _code_to_bs, _safe_float as bs_safe_float
         from services.mock_data import MOCK_STOCKS
         import baostock as bs
         from collections import defaultdict
         from datetime import datetime, timedelta
 
-        _ensure_login()
-
         # Get industry classification from baostock
-        rs = bs.query_stock_industry()
+        industry_rows = bs_query(bs.query_stock_industry)
         industry_map = {}
-        while rs.next():
-            row = rs.get_row_data()
+        for row in industry_rows:
             code_num = row[1].split('.')[-1] if '.' in row[1] else row[1]
             industry_name = row[3] if len(row) > 3 else ''
             if industry_name:
@@ -437,14 +434,12 @@ def sector_rotation():
             industry = industry_map.get(code, '其他')
             try:
                 bs_code = _code_to_bs(code)
-                rs = bs.query_history_k_data_plus(
+                rows = bs_query(
+                    bs.query_history_k_data_plus,
                     bs_code, "date,close,pctChg",
                     start_date=start_date, end_date=end_date,
-                    frequency="d", adjustflag="2"
+                    frequency="d", adjustflag="2",
                 )
-                rows = []
-                while rs.next():
-                    rows.append(rs.get_row_data())
                 if rows:
                     latest = rows[-1]
                     change_pct = bs_safe_float(latest[2])
@@ -586,7 +581,7 @@ def trend_signals():
         return _success(cached)
 
     try:
-        from services.stock_data import get_kline, _ensure_login
+        from services.stock_data import get_kline
         from services.mock_data import MOCK_STOCKS
         from services.indicators import calculate_macd, calculate_kdj
 

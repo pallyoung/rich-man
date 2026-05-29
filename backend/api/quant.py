@@ -177,11 +177,9 @@ def factor_select():
         return _success(cached)
 
     try:
-        from services.stock_data import get_kline, get_stock_info, _ensure_login, _code_to_bs
+        from services.stock_data import get_kline, get_stock_info, bs_query, _code_to_bs
         from services.mock_data import MOCK_STOCKS
-        import baostock as bs
-
-        _ensure_login()
+        # baostock access is handled via stock_data service
 
         # Build stock pool from MOCK_STOCKS + STOCK_POOL
         pool_codes = set(STOCK_POOL)

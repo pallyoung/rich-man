@@ -2,10 +2,14 @@
 
 Provides reliable Chinese stock market data without TLS fingerprinting issues.
 Falls back to akshare+curl_cffi for data not available in baostock.
+
+Key design: baostock uses a singleton TCP socket. All calls must be serialized
+through a global lock to prevent data corruption from concurrent access.
 """
 
 import logging
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 
 import baostock as bs
@@ -13,17 +17,86 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Thread-local storage for baostock login state
-_local = threading.local()
+# baostock uses a single global socket connection.
+# A threading.Lock serializes all access so concurrent Flask request threads
+# don't corrupt each other's reads/writes on the shared socket.
+_lock = threading.Lock()
+_logged_in = False
 
 
 def _ensure_login():
-    """Ensure baostock is logged in (per-thread)."""
-    if not getattr(_local, 'logged_in', False):
+    """Ensure baostock is logged in. **Caller must hold _lock.**"""
+    global _logged_in
+    if not _logged_in:
         lg = bs.login()
         if lg.error_code != '0':
             raise RuntimeError(f"baostock login failed: {lg.error_msg}")
-        _local.logged_in = True
+        _logged_in = True
+
+
+def reset_login():
+    """Force a re-login on the next baostock call. **Caller must hold _lock.**"""
+    global _logged_in
+    _logged_in = False
+
+
+@contextmanager
+def baostock_session():
+    """Thread-safe context manager for baostock operations.
+
+    Acquires the global lock, ensures login, and yields.
+    On connection-level errors the login flag is reset so the next call
+    will re-establish the connection.
+    """
+    with _lock:
+        _ensure_login()
+        try:
+            yield
+        except Exception as e:
+            # If the error is connection-related, force re-login next time.
+            msg = str(e).lower()
+            if any(kw in msg for kw in ('login', '网络', 'socket', 'recv',
+                                         'utf-8', 'decompress', 'index out of range')):
+                reset_login()
+            raise
+
+
+def bs_query(func, *args, **kwargs):
+    """Execute a baostock query function in a thread-safe session with retry.
+
+    Returns a list of row-data lists (each row is a list of strings).
+
+    Usage::
+
+        rows = bs_query(bs.query_history_k_data_plus, code, fields,
+                        start_date=..., end_date=..., frequency="d")
+    """
+    max_retries = 3
+    last_err = None
+    for attempt in range(max_retries):
+        try:
+            with baostock_session():
+                rs = func(*args, **kwargs)
+                if rs is None:
+                    raise RuntimeError("baostock returned None (socket may be dead)")
+                rows = []
+                while rs.next():
+                    rows.append(rs.get_row_data())
+                return rows
+        except Exception as e:
+            last_err = e
+            msg = str(e).lower()
+            retriable = any(kw in msg for kw in (
+                'login', '网络', 'socket', 'recv', 'utf-8',
+                'decompress', 'index out of range', 'none',
+            ))
+            if retriable and attempt < max_retries - 1:
+                logger.warning("baostock call failed (attempt %d/%d): %s",
+                               attempt + 1, max_retries, e)
+                with _lock:
+                    reset_login()
+                continue
+            raise
 
 
 def _code_to_bs(code: str) -> str:
@@ -50,14 +123,22 @@ def _safe_float(val, default=0.0):
         return default
 
 
+def _normalize_date(d: str) -> str:
+    """Normalize a date string to YYYY-MM-DD format."""
+    d = d.replace('-', '')
+    if len(d) == 8:
+        return f"{d[:4]}-{d[4:6]}-{d[6:]}"
+    return d
+
+
 def get_kline(code: str, start_date: str = '', end_date: str = '',
               period: str = 'daily', adjust: str = 'qfq') -> pd.DataFrame:
     """Get K-line data for a stock.
 
     Args:
         code: Stock code (e.g., '600519', '000001')
-        start_date: Start date in YYYYMMDD format
-        end_date: End date in YYYYMMDD format
+        start_date: Start date in YYYYMMDD or YYYY-MM-DD format
+        end_date: End date in YYYYMMDD or YYYY-MM-DD format
         period: 'daily', 'weekly', 'monthly'
         adjust: 'qfq' (forward), 'hfq' (backward), '' (none)
 
@@ -65,7 +146,6 @@ def get_kline(code: str, start_date: str = '', end_date: str = '',
         DataFrame with columns: date, open, high, low, close, volume, amount,
         change_pct, change, turnover_rate
     """
-    _ensure_login()
     bs_code = _code_to_bs(code)
 
     freq_map = {'daily': 'd', 'weekly': 'w', 'monthly': 'm'}
@@ -78,24 +158,16 @@ def get_kline(code: str, start_date: str = '', end_date: str = '',
     if not end_date:
         end_date = datetime.now().strftime('%Y-%m-%d')
 
-    # Normalize date format
-    start_date = start_date.replace('-', '')
-    end_date = end_date.replace('-', '')
-    if len(start_date) == 8:
-        start_date = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:]}"
-    if len(end_date) == 8:
-        end_date = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:]}"
+    start_date = _normalize_date(start_date)
+    end_date = _normalize_date(end_date)
 
     fields = "date,open,high,low,close,volume,amount,pctChg,turn"
-    rs = bs.query_history_k_data_plus(
+    rows = bs_query(
+        bs.query_history_k_data_plus,
         bs_code, fields,
         start_date=start_date, end_date=end_date,
-        frequency=bs_freq, adjustflag=bs_adjust
+        frequency=bs_freq, adjustflag=bs_adjust,
     )
-
-    rows = []
-    while rs.next():
-        rows.append(rs.get_row_data())
 
     if not rows:
         return pd.DataFrame()
@@ -113,9 +185,6 @@ def get_kline(code: str, start_date: str = '', end_date: str = '',
 
 def get_index_kline(code: str, start_date: str = '', end_date: str = '') -> pd.DataFrame:
     """Get K-line data for an index."""
-    _ensure_login()
-
-    # Map common index codes
     index_map = {
         '000001': 'sh.000001', '399001': 'sz.399001',
         '399006': 'sz.399006', '000688': 'sh.000688',
@@ -127,23 +196,16 @@ def get_index_kline(code: str, start_date: str = '', end_date: str = '') -> pd.D
     if not end_date:
         end_date = datetime.now().strftime('%Y-%m-%d')
 
-    start_date = start_date.replace('-', '')
-    end_date = end_date.replace('-', '')
-    if len(start_date) == 8:
-        start_date = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:]}"
-    if len(end_date) == 8:
-        end_date = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:]}"
+    start_date = _normalize_date(start_date)
+    end_date = _normalize_date(end_date)
 
     fields = "date,open,high,low,close,volume,amount,pctChg"
-    rs = bs.query_history_k_data_plus(
+    rows = bs_query(
+        bs.query_history_k_data_plus,
         bs_code, fields,
         start_date=start_date, end_date=end_date,
-        frequency="d"
+        frequency="d",
     )
-
-    rows = []
-    while rs.next():
-        rows.append(rs.get_row_data())
 
     if not rows:
         return pd.DataFrame()
@@ -165,21 +227,18 @@ def get_market_overview() -> list:
         ('sh.000688', '000688', '科创50'),
     ]
 
-    _ensure_login()
     result = []
     end_date = datetime.now().strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
 
     for bs_code, code, name in indices:
         try:
-            rs = bs.query_history_k_data_plus(
+            rows = bs_query(
+                bs.query_history_k_data_plus,
                 bs_code, "date,close,volume,amount,pctChg",
                 start_date=start_date, end_date=end_date,
-                frequency="d"
+                frequency="d",
             )
-            rows = []
-            while rs.next():
-                rows.append(rs.get_row_data())
 
             if rows:
                 latest = rows[-1]
@@ -207,12 +266,10 @@ def get_market_overview() -> list:
 
 def get_stock_info(code: str) -> dict:
     """Get basic stock information."""
-    _ensure_login()
     bs_code = _code_to_bs(code)
-
-    rs = bs.query_stock_basic(code=bs_code)
-    while rs.next():
-        row = rs.get_row_data()
+    rows = bs_query(bs.query_stock_basic, code=bs_code)
+    if rows:
+        row = rows[0]
         return {
             'code': code,
             'name': row[1],
@@ -226,12 +283,7 @@ def get_stock_info(code: str) -> dict:
 
 def get_industry_stocks() -> pd.DataFrame:
     """Get industry classification for stocks."""
-    _ensure_login()
-    rs = bs.query_stock_industry()
-
-    rows = []
-    while rs.next():
-        rows.append(rs.get_row_data())
+    rows = bs_query(bs.query_stock_industry)
 
     if not rows:
         return pd.DataFrame()
@@ -242,6 +294,8 @@ def get_industry_stocks() -> pd.DataFrame:
 
 def logout():
     """Logout from baostock."""
-    if getattr(_local, 'logged_in', False):
-        bs.logout()
-        _local.logged_in = False
+    global _logged_in
+    with _lock:
+        if _logged_in:
+            bs.logout()
+            _logged_in = False

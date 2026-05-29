@@ -338,7 +338,7 @@ def stock_fundamental(code):
         return _success(cached)
 
     try:
-        from services.stock_data import get_kline, get_stock_info, _ensure_login, _code_to_bs
+        from services.stock_data import get_kline, get_stock_info, bs_query, _code_to_bs
         import baostock as bs
 
         info = get_stock_info(code)
@@ -351,30 +351,25 @@ def stock_fundamental(code):
 
         # Get industry from baostock
         try:
-            _ensure_login()
             bs_code = _code_to_bs(code)
-            rs = bs.query_stock_industry(code=bs_code)
-            while rs.next():
-                row = rs.get_row_data()
-                result['industry'] = row[3] if len(row) > 3 else ''
-                break
+            rows = bs_query(bs.query_stock_industry, code=bs_code)
+            if rows:
+                result['industry'] = rows[0][3] if len(rows[0]) > 3 else ''
         except Exception:
             pass
 
         # Get profit data
         try:
-            _ensure_login()
             bs_code = _code_to_bs(code)
-            rs = bs.query_profit_data(code=bs_code, year=2024, quarter=4)
-            while rs.next():
-                row = rs.get_row_data()
+            rows = bs_query(bs.query_profit_data, code=bs_code, year=2024, quarter=4)
+            if rows:
+                row = rows[0]
                 if len(row) > 5:
                     result['roe'] = row[3]
                     result['net_profit_margin'] = row[4]
                     result['gross_profit_margin'] = row[5]
                 if len(row) > 6:
                     result['net_profit'] = row[6]
-                break
         except Exception:
             pass
 
@@ -423,14 +418,12 @@ def stock_search():
         stock_list = get_cached(list_cache_key, max_age_seconds=86400)
 
         if stock_list is None:
-            from services.stock_data import _ensure_login
+            from services.stock_data import bs_query
             import baostock as bs
-            _ensure_login()
 
-            rs = bs.query_stock_basic()
+            rows = bs_query(bs.query_stock_basic)
             stock_list = []
-            while rs.next():
-                row = rs.get_row_data()
+            for row in rows:
                 bs_code = row[0]
                 name = row[1]
                 code_num = bs_code.split('.')[-1] if '.' in bs_code else bs_code
