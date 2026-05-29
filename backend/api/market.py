@@ -310,7 +310,28 @@ def stock_ranking():
                 except Exception:
                     pass
 
+        # Sort based on rank type
+        if rank_type == 'rise':
+            stocks.sort(key=lambda x: x.get('change_pct', 0), reverse=True)
+        elif rank_type == 'fall':
+            stocks.sort(key=lambda x: x.get('change_pct', 0))
+        elif rank_type == 'turnover':
+            stocks.sort(key=lambda x: x.get('turnover', 0), reverse=True)
+        elif rank_type == 'volume':
+            stocks.sort(key=lambda x: x.get('volume', 0), reverse=True)
 
+        total = len(stocks)
+        start = (page - 1) * page_size
+        end = start + page_size
+
+        result = {
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'stocks': stocks[start:end],
+        }
+
+        set_cached(cache_key, result, ttl_seconds=120)
         return _success(result)
 
     except Exception as e:

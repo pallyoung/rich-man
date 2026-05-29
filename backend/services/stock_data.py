@@ -408,19 +408,44 @@ def logout():
             _logged_in = False
 
 
-def get_a_shares_realtime_batch() -> pd.DataFrame:
+def get_a_shares_realtime_batch(timeout: float = 8.0) -> pd.DataFrame:
     """Fetch real-time quotes for ALL A-shares in a single HTTP call.
 
     Uses akshare ``stock_zh_a_spot_em`` (East Money push API) which returns
     ~5000 stocks in one request, avoiding the N×baostock-query pattern that
     serializes under the global lock.
 
+    Args:
+        timeout: Max seconds to wait for the akshare call before giving up.
+
     Returns a DataFrame with normalized English column names, or an empty
     DataFrame on failure.
     """
     try:
         import akshare as ak
-        df = ak.stock_zh_a_spot_em()
+        import threading
+
+        result = [None]
+        exc = [None]
+
+        def _fetch():
+            try:
+                result[0] = ak.stock_zh_a_spot_em()
+            except Exception as e:
+                exc[0] = e
+
+        worker = threading.Thread(target=_fetch, daemon=True)
+        worker.start()
+        worker.join(timeout=timeout)
+
+        if worker.is_alive():
+            logger.warning("akshare stock_zh_a_spot_em timed out after %ss", timeout)
+            return pd.DataFrame()
+
+        if exc[0] is not None:
+            raise exc[0]
+
+        df = result[0]
         if df is None or df.empty:
             return pd.DataFrame()
 
