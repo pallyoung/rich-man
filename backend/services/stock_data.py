@@ -219,7 +219,12 @@ def get_index_kline(code: str, start_date: str = '', end_date: str = '') -> pd.D
 
 
 def get_market_overview() -> list:
-    """Get latest data for major indices."""
+    """Get latest data for major indices.
+
+    Tries akshare real-time spot data first (intraday quotes from East Money),
+    falls back to baostock end-of-day data.  Each item includes ``data_date``
+    so the caller can tell whether the quote is from today or a prior day.
+    """
     indices = [
         ('sh.000001', '000001', '上证指数'),
         ('sz.399001', '399001', '深证成指'),
@@ -227,6 +232,93 @@ def get_market_overview() -> list:
         ('sh.000688', '000688', '科创50'),
     ]
 
+    # --- Strategy 1: akshare real-time spot data (intraday) ----------------
+    result = _get_realtime_index_spot()
+    if result:
+        return result
+
+    # --- Strategy 2: baostock end-of-day data (fallback) -------------------
+    return _get_baostock_index_eod(indices)
+
+
+def _get_realtime_index_spot() -> list:
+    """Try to fetch real-time index quotes via akshare (East Money).
+
+    Returns a list of index dicts with ``data_date`` set to today, or an
+    empty list if the request fails for any reason.
+    """
+    target_codes = {
+        '000001': '上证指数',
+        '399001': '深证成指',
+        '399006': '创业板指',
+        '000688': '科创50',
+    }
+    try:
+        import akshare as ak
+        import concurrent.futures
+
+        def _fetch_spot(sym):
+            return ak.stock_zh_index_spot_em(symbol=sym)
+
+        frames = []
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+        try:
+            futures = {pool.submit(_fetch_spot, s): s
+                       for s in ('上证系列指数', '深证系列指数')}
+            for fut in concurrent.futures.as_completed(futures, timeout=8):
+                try:
+                    df = fut.result()
+                    if df is not None and not df.empty:
+                        frames.append(df)
+                except Exception:
+                    pass
+        except concurrent.futures.TimeoutError:
+            pass  # accept whatever we collected within the timeout
+        finally:
+            pool.shutdown(wait=False)
+
+        if not frames:
+            return []
+
+        all_df = pd.concat(frames, ignore_index=True)
+
+        result = []
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        for _, row in all_df.iterrows():
+            code = str(row.get('代码', '')).strip()
+            if code not in target_codes:
+                continue
+            price = _safe_float(row.get('最新价'))
+            change = _safe_float(row.get('涨跌额'))
+            change_pct = _safe_float(row.get('涨跌幅'))
+            result.append({
+                'code': code,
+                'name': target_codes[code],
+                'price': price,
+                'change': change,
+                'change_pct': change_pct,
+                'volume': _safe_float(row.get('成交量')),
+                'amount': _safe_float(row.get('成交额')),
+                'data_date': today_str,
+            })
+
+        if any(r['code'] == '000001' for r in result):
+            logger.info("Market overview: using akshare real-time spot data")
+            return result
+        return []
+
+    except Exception as e:
+        logger.info("akshare real-time index spot unavailable: %s", e)
+        return []
+
+
+def _get_baostock_index_eod(indices: list) -> list:
+    """Fetch end-of-day index data from baostock (historical / last close).
+
+    Always includes ``data_date`` so the caller knows which trading day
+    the quote belongs to — typically the *previous* trading day when the
+    market is still open.
+    """
     result = []
     end_date = datetime.now().strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
@@ -246,6 +338,7 @@ def get_market_overview() -> list:
                 price = _safe_float(latest[1])
                 change_pct = _safe_float(latest[4])
                 change = round(price - prev_close, 2) if prev_close else 0
+                data_date = latest[0]  # e.g. '2026-05-28'
 
                 result.append({
                     'code': code,
@@ -255,12 +348,14 @@ def get_market_overview() -> list:
                     'change_pct': change_pct,
                     'volume': _safe_float(latest[2]),
                     'amount': _safe_float(latest[3]),
+                    'data_date': data_date,
                 })
             else:
                 logger.warning("Index %s not available in baostock, skipping", code)
         except Exception as e:
             logger.warning("Failed to fetch index %s: %s", code, e)
 
+    logger.info("Market overview: using baostock EOD data (last available trading day)")
     return result
 
 

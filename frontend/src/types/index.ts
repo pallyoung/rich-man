@@ -16,6 +16,7 @@ export interface MarketIndex {
   pct_change?: number;
   volume?: number;
   amount?: number;
+  data_date?: string;
 }
 
 /** Sector data */
@@ -205,6 +206,12 @@ export interface SearchResult {
 }
 
 /** Overview data with updown stats */
+export interface FearGreedFactor {
+  score: number;
+  weight: number;
+  label: string;
+}
+
 export interface OverviewData {
   indices: MarketIndex[];
   up_count?: number;
@@ -214,5 +221,8 @@ export interface OverviewData {
   down?: number;
   flat?: number;
   sentiment?: number;
+  sentiment_label?: string;
+  factors?: Record<string, FearGreedFactor>;
+  source?: string;
   [key: string]: unknown;
 }
